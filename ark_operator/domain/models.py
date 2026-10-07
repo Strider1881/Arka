@@ -1,91 +1,162 @@
-"""Pydantic domain models for goals, plans, evidence, and reports.
+"""Pydantic domain models for goals, plans, evidence, and reports."""
 
-STUB: full field definitions land in P2 (runtime skeleton).
-"""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ark_operator.domain.enums import (
+    Confidence,
+    FailureKind,
+    InvoiceDecision,
+    InvoiceOutcome,
+    RiskLevel,
+    StepStatus,
+)
+
 
 class Goal(BaseModel):
-    """User-supplied goal / request text."""
-
     text: str = Field(..., min_length=1)
 
 
+class PolicyCitation(BaseModel):
+    file: str
+    section: str = ""
+    excerpt: str = ""
+
+
 class Interpretation(BaseModel):
-    """Structured understanding of a Goal (SPEC §6.3).
-
-    STUB: fields expanded in P4.
-    """
-
     intended_outcome: str = ""
     assumptions: list[str] = Field(default_factory=list)
-
-
-class Plan(BaseModel):
-    """Typed plan of steps (SPEC §6.4).
-
-    STUB: full Step graph in P2/P4.
-    """
-
-    steps: list[str] = Field(default_factory=list)
+    sources_needed: list[str] = Field(default_factory=list)
+    applicable_policies: list[PolicyCitation] = Field(default_factory=list)
+    permitted_actions: list[str] = Field(default_factory=list)
+    success_criteria: list[str] = Field(default_factory=list)
+    open_questions: list[str] = Field(default_factory=list)
 
 
 class Step(BaseModel):
-    """Single plan step.
-
-    STUB: tool/args/postcondition fields in P2.
-    """
-
     id: str
     description: str = ""
+    tool: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
+    expected_postcondition: str = ""
+    risk_level: RiskLevel = RiskLevel.READ
+    depends_on: list[str] = Field(default_factory=list)
+    status: StepStatus = StepStatus.PENDING
+    idempotency_key: str = ""
+    invoice_number: str | None = None
+
+
+class Plan(BaseModel):
+    id: str = "plan-1"
+    steps: list[Step] = Field(default_factory=list)
+    revision: int = 0
 
 
 class Action(BaseModel):
-    """A concrete tool action to execute."""
-
     name: str
-    args: dict[str, object] = Field(default_factory=dict)
+    args: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str = ""
+    risk_level: RiskLevel = RiskLevel.READ
 
 
 class Observation(BaseModel):
-    """Result of executing an Action."""
-
     summary: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+    success: bool = True
+    hash: str = ""
 
 
 class Failure(BaseModel):
-    """Typed failure returned by tools or recovery."""
-
-    kind: str
+    kind: FailureKind
     message: str
+    retryable: bool = False
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class Approval(BaseModel):
-    """Durable human approval / question record."""
-
     id: str
+    run_id: str
+    step_id: str = ""
     prompt: str = ""
+    options: list[str] = Field(default_factory=lambda: ["approve", "reject"])
+    context: dict[str, Any] = Field(default_factory=dict)
+    status: str = "PENDING"  # PENDING | APPROVED | REJECTED
+    decided_by: str | None = None
+    decided_at: datetime | None = None
 
 
 class Evidence(BaseModel):
-    """Artifact proving an action or verification check (e.g. screenshot)."""
-
+    id: str
     label: str
     path: str = ""
+    kind: str = "screenshot"
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class CriterionResult(BaseModel):
+    name: str
+    passed: bool
+    detail: str = ""
+    evidence_refs: list[str] = Field(default_factory=list)
 
 
 class VerificationResult(BaseModel):
-    """Independent verifier output (SPEC §7).
-
-    STUB: per-criterion checks in P7.
-    """
-
     passed: bool = False
-    confidence: str = "LOW"
+    confidence: Confidence = Confidence.LOW
+    criteria: list[CriterionResult] = Field(default_factory=list)
+    overall_notes: str = ""
+
+
+class InvoiceRecord(BaseModel):
+    """Extracted / decided invoice unit of work."""
+
+    invoice_number: str
+    vendor: str
+    amount: float
+    po_number: str | None = None
+    invoice_date: str = ""
+    attachment_name: str = ""
+    canonical_vendor: str | None = None
+    decision: InvoiceDecision | None = None
+    decision_reason: str = ""
+    security_finding: bool = False
+    outcome: InvoiceOutcome | None = None
+    portal_status: str | None = None
+    confidence: Confidence = Confidence.MEDIUM
+    fields_confidence: dict[str, float] = Field(default_factory=dict)
+
+
+class InvoiceLineResult(BaseModel):
+    invoice_number: str
+    outcome: InvoiceOutcome
+    reason: str = ""
+    policy_cited: list[PolicyCitation] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    verified: bool = False
 
 
 class RunReport(BaseModel):
-    """Final one-screen proof report payload."""
-
+    run_id: str
     summary: str = ""
+    invoices: list[InvoiceLineResult] = Field(default_factory=list)
+    verification: VerificationResult | None = None
+    needs_attention: list[str] = Field(default_factory=list)
+    security_findings: list[str] = Field(default_factory=list)
+
+
+class WorkingState(BaseModel):
+    """Compact derived state for LLM context (never raw event dump)."""
+
+    run_id: str
+    state: str
+    goal: str = ""
+    completed_steps: list[str] = Field(default_factory=list)
+    pending_steps: list[str] = Field(default_factory=list)
+    invoices: list[InvoiceRecord] = Field(default_factory=list)
+    pending_approvals: list[str] = Field(default_factory=list)
+    repair_cycles: int = 0
+    notes: list[str] = Field(default_factory=list)

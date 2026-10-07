@@ -1,14 +1,14 @@
-"""Event type names and payload schemas for the append-only log.
+"""Event type names and payload helpers for the append-only log."""
 
-STUB: full event payload models land in P2.
-"""
+from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class EventType(StrEnum):
-    """Minimum event types from SPEC §6.1."""
-
     RUN_STARTED = "RUN_STARTED"
     INTERPRETATION_CREATED = "INTERPRETATION_CREATED"
     KNOWLEDGE_RETRIEVED = "KNOWLEDGE_RETRIEVED"
@@ -32,3 +32,15 @@ class EventType(StrEnum):
     BUDGET_WARNING = "BUDGET_WARNING"
     STALL_DETECTED = "STALL_DETECTED"
     SECURITY_FINDING = "SECURITY_FINDING"
+    STATE_CHANGED = "STATE_CHANGED"
+    IDEMPOTENCY_SKIP = "IDEMPOTENCY_SKIP"
+
+
+class EventRecord(BaseModel):
+    id: int | None = None
+    run_id: str
+    seq: int
+    ts: str
+    type: EventType
+    step_id: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)

@@ -44,6 +44,7 @@ src = ["ark_operator", "company_world", "evals", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["SIM117"]
 
 [tool.mypy]
 python_version = "3.12"

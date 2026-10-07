@@ -22,7 +22,7 @@ def test_run_state_intake() -> None:
 
 def test_fake_llm_scripted() -> None:
     llm = FakeLLM(scripts={"ping": {"ok": True}})
-    assert llm.complete("ping", {}) == {"ok": True}
+    assert llm.complete("ping", {}).content == {"ok": True}
 
 
 def test_settings_defaults() -> None:
