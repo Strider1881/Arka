@@ -43,8 +43,20 @@ flowchart LR
 - Verifier uses a **fresh** portal_api session (agent never grades itself)
 - Irreversible submits require policy clearance + idempotency keys
 
+## Browser execute→observe→adapt (SPEC §6.5–6.7)
+
+```mermaid
+flowchart LR
+  Observe[a11y observe + refs] --> LLM[LLM browser_step]
+  LLM --> Act[one action: login/goto/click/fill/select]
+  Act --> Observe
+  Observe --> Done{postcondition / budget / stall}
+```
+
+Dual path: **Anthropic / `use_browser_loop=True`** uses the loop above; **FakeLLM CI** keeps high-level `submit_invoice` (real Playwright) for eval speed. Clearance + `IrreversibleLedger` wrap both paths.
+
 ## Package map
-- `ark_operator/runtime` — orchestrator, pipeline, recovery, budgets
+- `ark_operator/runtime` — orchestrator, pipeline, browser_loop, executor, recovery, budgets
 - `ark_operator/tools` — browser, pdf, files, knowledge, portal_api, ask_human
 - `ark_operator/policy` — rules.yaml + decision engine
 - `ark_operator/verify` — independent checks + evidence

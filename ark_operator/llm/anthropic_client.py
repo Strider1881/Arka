@@ -194,6 +194,9 @@ def _normalize_structured(data: Any) -> Any:
             )
         elif key in _UPPER_ENUM_KEYS and isinstance(value, str):
             out[key] = value.strip().upper()
+        elif key == "action" and isinstance(value, str):
+            # browser_step actions are lowercase tokens
+            out[key] = value.strip().lower().replace(" ", "_")
         elif key in _STRING_LIST_KEYS and isinstance(value, list):
             out[key] = [_coerce_string_list_item(item) for item in value]
         else:

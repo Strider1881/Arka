@@ -8,15 +8,23 @@ from ark_operator.domain.enums import PolicyDecision, RiskLevel
 from ark_operator.domain.models import Step
 from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
+from ark_operator.llm.base import LLMClient
 from ark_operator.policy.engine import PolicyEngine
+from ark_operator.runtime.browser_loop import BrowserLoop, BrowserLoopResult
+from ark_operator.runtime.budgets import Budgets
 from ark_operator.runtime.recovery import Recovery
 from ark_operator.runtime.stall_detector import StallDetector
 from ark_operator.tools.base import ToolResult
+from ark_operator.tools.browser import BrowserTool
 from ark_operator.tools.registry import ToolRegistry
 
 
 class Executor:
-    """Runs ready steps via tools with policy and budgets."""
+    """Runs ready steps via tools with policy and budgets.
+
+    Portal invoice writes can also run as a one-action-at-a-time a11y loop
+    via :meth:`run_browser_submit` (SPEC §6.5–6.7).
+    """
 
     def __init__(
         self,
@@ -26,6 +34,9 @@ class Executor:
         recovery: Recovery,
         stall: StallDetector,
         run_id: str,
+        *,
+        llm: LLMClient | None = None,
+        budgets: Budgets | None = None,
     ) -> None:
         self.store = store
         self.registry = registry
@@ -33,6 +44,36 @@ class Executor:
         self.recovery = recovery
         self.stall = stall
         self.run_id = run_id
+        self.llm = llm
+        self.budgets = budgets or Budgets()
+
+    def run_browser_submit(
+        self,
+        fields: dict[str, Any],
+        *,
+        step_id: str,
+        idempotency_key: str,
+        prefer_label_first: bool = False,
+        max_actions: int = 30,
+    ) -> BrowserLoopResult:
+        """LLM chooses one a11y action at a time until invoice submit postcondition."""
+        if self.llm is None:
+            raise RuntimeError("Executor.run_browser_submit requires an LLMClient")
+        browser = self.registry.get("browser")
+        if not isinstance(browser, BrowserTool):
+            raise TypeError("browser tool must be BrowserTool for a11y loop")
+        loop = BrowserLoop(
+            llm=self.llm,
+            browser=browser,
+            store=self.store,
+            run_id=self.run_id,
+            stall=self.stall,
+            recovery=self.recovery,
+            budgets=self.budgets,
+            max_actions=max_actions,
+            prefer_label_first=prefer_label_first,
+        )
+        return loop.run_submit(fields, step_id=step_id, idempotency_key=idempotency_key)
 
     def run_step(self, step: Step) -> ToolResult:
         """Execute one step with policy check, tool call, observation."""

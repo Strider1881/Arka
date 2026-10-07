@@ -63,6 +63,18 @@ class Action(BaseModel):
     risk_level: RiskLevel = RiskLevel.READ
 
 
+class BrowserActionChoice(BaseModel):
+    """One LLM-chosen browser action from a compact a11y observation (SPEC §6.5–6.7)."""
+
+    action: str  # login|goto|click|fill|select|press|wait_for|done|abort
+    ref: str | None = None
+    text: str | None = None
+    value: str | None = None
+    url: str | None = None
+    key: str | None = None
+    rationale: str = ""
+
+
 class Observation(BaseModel):
     summary: str = ""
     data: dict[str, Any] = Field(default_factory=dict)

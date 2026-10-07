@@ -65,6 +65,8 @@ class PipelineConfig:
     invoice_filter: list[str] | None = None  # filename stems e.g. INV-1001
     # Test/eval hook: stop after N invoices before VERIFY (crash/resume AC).
     crash_after_invoices: int | None = None
+    # None = auto: a11y loop for AnthropicClient, submit_invoice shortcut for FakeLLM/CI.
+    use_browser_loop: bool | None = None
 
 
 @dataclass
@@ -679,10 +681,17 @@ class InvoicePipeline:
             "requires_portal_submit": requires_submit,
         }
 
+    def _use_browser_loop(self) -> bool:
+        """Real Haiku path uses a11y loop; FakeLLM/CI keeps submit_invoice shortcut."""
+        if self.config.use_browser_loop is not None:
+            return self.config.use_browser_loop
+        from ark_operator.llm.anthropic_client import AnthropicClient
+
+        return isinstance(self.llm, AnthropicClient)
+
     def _browser_submit(
         self, run_id: str, inv: InvoiceRecord, ledger: IrreversibleLedger
     ) -> InvoiceOutcome:
-        browser = self.registry.get("browser")
         key = irreversible_key(run_id, inv.invoice_number, "submit")
         # Exactly-once: never re-submit a committed irreversible write.
         if ledger.is_committed(key):
@@ -693,18 +702,115 @@ class InvoicePipeline:
             )
             return InvoiceOutcome.NEEDS_ATTENTION
 
-        def do_submit() -> Any:
-            return browser.run(
+        fields = {
+            "vendor": inv.canonical_vendor or inv.vendor,
+            "invoice_number": inv.invoice_number,
+            "po_number": inv.po_number,
+            "amount": inv.amount,
+            "invoice_date": inv.invoice_date,
+            "attachment_name": inv.attachment_name,
+        }
+        if self._use_browser_loop():
+            return self._browser_submit_loop(run_id, inv, ledger, key, fields)
+        return self._browser_submit_shortcut(run_id, inv, ledger, key, fields)
+
+    def _browser_submit_loop(
+        self,
+        run_id: str,
+        inv: InvoiceRecord,
+        ledger: IrreversibleLedger,
+        key: str,
+        fields: dict[str, Any],
+    ) -> InvoiceOutcome:
+        """One a11y action at a time (SPEC §6.5–6.7) via Executor + BrowserLoop."""
+        from ark_operator.runtime.executor import Executor
+
+        prefer_label = bool(getattr(self._browser, "prefer_label_first", False))
+        executor = Executor(
+            self.store,
+            self.registry,
+            self.policy,
+            self.recovery,
+            self.stall,
+            run_id,
+            llm=self.llm,
+            budgets=self.budgets,
+        )
+        self.store.append(
+            run_id,
+            EventType.TOOL_CALL,
+            {
+                "tool": "browser",
+                "action": "a11y_loop",
+                "invoice_number": inv.invoice_number,
+                "idempotency_key": key,
+            },
+        )
+        loop_res = executor.run_browser_submit(
+            fields,
+            step_id=f"{inv.invoice_number}:submit",
+            idempotency_key=key,
+            prefer_label_first=prefer_label,
+        )
+        if loop_res.recovered_from_label:
+            result_recoveries = getattr(self, "_recovery_count", 0) + 1
+            self._recovery_count = result_recoveries
+        evidence_ids = list(loop_res.data.get("evidence") or [])
+        inv.evidence_ids = evidence_ids
+        for eid in evidence_ids:
+            self.store.append(
+                run_id,
+                EventType.EVIDENCE_ADDED,
                 {
-                    "action": "submit_invoice",
-                    "vendor": inv.canonical_vendor or inv.vendor,
+                    "evidence_id": eid,
                     "invoice_number": inv.invoice_number,
-                    "po_number": inv.po_number,
-                    "amount": inv.amount,
-                    "invoice_date": inv.invoice_date,
-                    "attachment_name": inv.attachment_name,
-                }
+                    "kind": "screenshot",
+                },
             )
+        self.store.append(
+            run_id,
+            EventType.OBSERVATION,
+            {
+                "ok": loop_res.ok,
+                "url": loop_res.data.get("url"),
+                "banner": loop_res.data.get("banner"),
+                "recovered_from_label": loop_res.recovered_from_label,
+                "evidence": evidence_ids,
+                "loop": "a11y",
+                "actions": len(loop_res.actions),
+            },
+        )
+        if loop_res.ok:
+            ledger.commit(
+                key,
+                result={
+                    "invoice_number": inv.invoice_number,
+                    "url": loop_res.data.get("url"),
+                    "loop": "a11y",
+                },
+                step_id=f"{inv.invoice_number}:submit",
+            )
+        elif loop_res.failure is not None:
+            self.store.append(
+                run_id,
+                EventType.FAILURE_CLASSIFIED,
+                loop_res.failure.model_dump(mode="json"),
+            )
+        return InvoiceOutcome.NEEDS_ATTENTION
+
+    def _browser_submit_shortcut(
+        self,
+        run_id: str,
+        inv: InvoiceRecord,
+        ledger: IrreversibleLedger,
+        key: str,
+        fields: dict[str, Any],
+    ) -> InvoiceOutcome:
+        """FakeLLM/CI fast path: high-level submit_invoice (still real Playwright writes)."""
+        browser = self.registry.get("browser")
+
+        def do_submit() -> Any:
+            return browser.run({"action": "submit_invoice", **fields})
 
         self.store.append(
             run_id,
@@ -792,6 +898,7 @@ class InvoicePipeline:
                 "banner": (res.data or {}).get("banner"),
                 "recovered_from_label": (res.data or {}).get("recovered_from_label"),
                 "evidence": evidence_ids,
+                "loop": "shortcut",
             },
         )
         if res.ok:

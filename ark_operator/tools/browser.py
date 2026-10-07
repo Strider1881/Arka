@@ -86,13 +86,30 @@ class BrowserTool(BaseTool):
                     continue
                 tag = el.evaluate("e => e.tagName.toLowerCase()")
                 role = el.get_attribute("role") or tag
-                text = (el.inner_text() or el.get_attribute("value") or "").strip()[:80]
+                # Keep each element on ONE line so [eN] stays with id= (selects'
+                # inner_text includes option newlines otherwise).
+                raw_text = (el.inner_text() or el.get_attribute("value") or "").strip()
+                text = " ".join(raw_text.split())[:80]
                 eid = el.get_attribute("id") or ""
                 name = el.get_attribute("name") or ""
                 ref = f"e{idx}"
                 self._refs[ref] = el
                 label = text or eid or name or role
-                lines.append(f'[{ref}] {role} "{label}" id={eid}')
+                if tag == "select":
+                    opts: list[str] = []
+                    for opt in el.query_selector_all("option"):
+                        ov = (opt.get_attribute("value") or "").strip()
+                        ol = " ".join((opt.inner_text() or "").split())[:60]
+                        if ov or ol:
+                            opts.append(f"{ov}:{ol}" if ov else ol)
+                    opt_s = ",".join(opts[:24])
+                    lines.append(f'[{ref}] select "{label}" id={eid} options=[{opt_s}]')
+                elif tag == "input":
+                    itype = el.get_attribute("type") or "text"
+                    val = (el.input_value() if itype != "password" else "")[:80]
+                    lines.append(f'[{ref}] input/{itype} "{label}" id={eid} value={val!r}')
+                else:
+                    lines.append(f'[{ref}] {role} "{label}" id={eid}')
                 idx += 1
             except Exception:
                 continue
@@ -128,10 +145,13 @@ class BrowserTool(BaseTool):
                 return self._fill(str(args["ref"]), str(args["text"]))
             if action == "select":
                 return self._select(str(args["ref"]), str(args["value"]))
+            if action == "press":
+                return self._press(str(args.get("key") or "Enter"), ref=args.get("ref"))
             if action == "screenshot":
                 ev = self._screenshot(str(args.get("label", "shot")))
                 return ToolResult(ok=True, data={"evidence": ev.model_dump()})
             if action == "submit_invoice":
+                # CI / FakeLLM fast path only — real Haiku path uses a11y step loop.
                 return self._submit_invoice(args)
             if action == "wait_for":
                 page = self._ensure()
@@ -192,10 +212,15 @@ class BrowserTool(BaseTool):
             data={"observation": obs, "logged_in": True},
         )
 
+    def _resolve_ref(self, ref: str) -> Any | None:
+        """Resolve [eN] against the last observation without remapping refs first."""
+        if not self._refs:
+            self._observe()
+        return self._refs.get(ref)
+
     def _click(self, ref: str) -> ToolResult:
         page = self._ensure()
-        self._observe()
-        el = self._refs.get(ref)
+        el = self._resolve_ref(ref)
         if el is None:
             return ToolResult(
                 ok=False,
@@ -206,8 +231,12 @@ class BrowserTool(BaseTool):
                 ),
             )
         before = self._screenshot(f"before_click_{ref}")
-        el.click()
-        page.wait_for_timeout(200)
+        try:
+            with page.expect_navigation(timeout=5000, wait_until="domcontentloaded"):
+                el.click()
+        except Exception:
+            # Non-navigating click: click already ran inside expect_navigation.
+            page.wait_for_timeout(300)
         after = self._screenshot(f"after_click_{ref}")
         obs = self._observe()
         return ToolResult(
@@ -217,8 +246,7 @@ class BrowserTool(BaseTool):
         )
 
     def _fill(self, ref: str, text: str) -> ToolResult:
-        self._observe()
-        el = self._refs.get(ref)
+        el = self._resolve_ref(ref)
         if el is None:
             return ToolResult(
                 ok=False,
@@ -235,8 +263,7 @@ class BrowserTool(BaseTool):
         )
 
     def _select(self, ref: str, value: str) -> ToolResult:
-        self._observe()
-        el = self._refs.get(ref)
+        el = self._resolve_ref(ref)
         if el is None:
             return ToolResult(
                 ok=False,
@@ -246,10 +273,51 @@ class BrowserTool(BaseTool):
                     retryable=True,
                 ),
             )
-        el.select_option(value)
+        try:
+            el.select_option(value)
+        except Exception:
+            # LLM often passes visible option label; match by contains.
+            matched = False
+            for opt in el.query_selector_all("option"):
+                label = (opt.inner_text() or "").strip()
+                oval = opt.get_attribute("value") or ""
+                if value in label and oval:
+                    el.select_option(oval)
+                    matched = True
+                    break
+            if not matched:
+                return ToolResult(
+                    ok=False,
+                    failure=Failure(
+                        kind=FailureKind.ELEMENT_NOT_FOUND,
+                        message=f"No option matching {value!r} for {ref}",
+                        retryable=True,
+                    ),
+                )
         obs = self._observe()
         return ToolResult(
             ok=True, observation=Observation(summary=f"Selected {ref}", data=obs), data=obs
+        )
+
+    def _press(self, key: str, *, ref: str | None = None) -> ToolResult:
+        page = self._ensure()
+        if ref:
+            el = self._resolve_ref(ref)
+            if el is None:
+                return ToolResult(
+                    ok=False,
+                    failure=Failure(
+                        kind=FailureKind.ELEMENT_NOT_FOUND,
+                        message=f"Unknown ref {ref}",
+                        retryable=True,
+                    ),
+                )
+            el.press(key)
+        else:
+            page.keyboard.press(key)
+        obs = self._observe()
+        return ToolResult(
+            ok=True, observation=Observation(summary=f"Pressed {key}", data=obs), data=obs
         )
 
     def _submit_invoice(self, args: dict[str, Any]) -> ToolResult:
