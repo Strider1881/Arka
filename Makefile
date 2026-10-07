@@ -1,10 +1,14 @@
-.PHONY: setup portal run test lint eval demo
+.PHONY: setup portal run test lint eval demo invoices
 
 setup:
 	uv sync
+	uv run python -m company_world.scripts.make_invoices
 
-portal:
-	@echo "STUB: company_world portal not implemented yet (P1)."
+invoices:
+	uv run python -m company_world.scripts.make_invoices
+
+portal: invoices
+	uv run python -m company_world.portal
 
 run:
 	@echo "STUB: operator run not implemented yet (P2+)."

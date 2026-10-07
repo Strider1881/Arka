@@ -8,8 +8,8 @@ ambiguity requires it.
 
 ## Status
 
-**Phase 0 (scaffold) complete.** Later phases (company portal, runtime, tools, UI, evals)
-are not implemented yet. Targets marked STUB print a clear message — nothing is silently faked.
+**Phase 1 (company world) complete.** Portal, seed data, 12 invoice PDFs, knowledge base,
+expected outcomes, and fault injection are in place. Operator runtime / UI / evals are still STUB.
 
 Demo GIF/video: *not available yet* (P10).
 
@@ -31,13 +31,23 @@ make test              # pytest
 
 | Target | Status |
 |--------|--------|
-| `make setup` | Works |
+| `make setup` | Works (also generates invoice PDFs) |
 | `make lint` | Works |
 | `make test` | Works |
-| `make portal` | STUB (P1) |
+| `make invoices` | Generates 12 PDFs into `company_world/inbox/` |
+| `make portal` | Serves AcmeCorp Procure at http://127.0.0.1:8765 |
 | `make run` | STUB (P2+) |
 | `make eval` | STUB (P10) |
 | `make demo` | STUB (P10) |
+
+### Portal quickstart
+
+```bash
+cp .env.example .env   # set PORTAL_OPERATOR_PASSWORD
+make portal            # regenerates PDFs, then serves on :8765
+# Login: operator@acmecorp.test / $PORTAL_OPERATOR_PASSWORD
+# Manager: priya.nair@acmecorp.test / $PORTAL_MANAGER_PASSWORD
+```
 
 CLI placeholder: `uv run operator --help` (subcommands print STUB until wired).
 
@@ -59,5 +69,5 @@ session expiry default N=5. Details in [DECISIONS.md](docs/DECISIONS.md).
 
 ## Limitations / next steps
 
-- No portal, PDFs, runtime, or LLM calls yet — scaffold and tooling only.
-- Next phase (P1): company world portal, seed data, invoice PDFs, knowledge base, fault injection.
+- No operator runtime, browser tool, LLM loop, or Operator UI yet.
+- Next phase (P2): domain models, event store, state machine, FakeLLM, budgets, stall detector.

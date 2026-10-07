@@ -39,5 +39,5 @@ evals/results/*
 .vscode/
 *.swp
 
-# Generated invoices (P1 will commit or regenerate — ignore local scratch)
-company_world/inbox/*.pdf
+# Local portal DB
+company_world/portal/*.db
