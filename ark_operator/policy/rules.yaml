@@ -1,0 +1,9 @@
+# STUB: full policy rules land in P6.
+# Placeholder thresholds aligned with company knowledge (SPEC §8).
+
+approval_threshold_usd: 5000
+tolerance_pct: 2.0
+
+tool_permissions:
+  # name: risk class — filled in when tools land
+  stub_example: READ
