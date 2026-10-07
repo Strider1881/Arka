@@ -76,13 +76,14 @@ class AnthropicClient:
         if schema is not None:
             system += f" JSON schema fields: {list(schema.model_fields)}"
 
-        # SPEC: temperature 0 for plan/verify-related structured calls.
+        # SPEC: temperature 0 for plan/understand structured calls.
+        # Newer anthropic SDKs omit the typed `temperature` kwarg; send via body.
         msg = client.messages.create(
             model=self.model,
             max_tokens=4096,
-            temperature=0,
             system=system,
             messages=[{"role": "user", "content": prompt}],
+            extra_body={"temperature": 0},
         )
         raw = "".join(block.text for block in msg.content if hasattr(block, "text"))
         tokens_in = int(getattr(msg.usage, "input_tokens", 0) or 0)
