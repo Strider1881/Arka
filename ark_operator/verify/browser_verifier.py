@@ -106,26 +106,16 @@ class BrowserVerifier:
                 attachment = inv.attachment_name
                 if attachment:
                     portal_row = next(
-                        (
-                            r
-                            for r in rows
-                            if str(r.get("attachment_name") or "") == attachment
-                        ),
+                        (r for r in rows if str(r.get("attachment_name") or "") == attachment),
                         None,
                     )
                 if portal_row is None:
                     canonical = inv.canonical_vendor or inv.vendor
                     portal_row = next(
-                        (
-                            r
-                            for r in rows
-                            if str(r.get("vendor") or "") in {inv.vendor, canonical}
-                        ),
+                        (r for r in rows if str(r.get("vendor") or "") in {inv.vendor, canonical}),
                         rows[0],
                     )
-            criteria.extend(
-                check_invoice_against_portal(inv, portal_row, all_rows_for_number=rows)
-            )
+            criteria.extend(check_invoice_against_portal(inv, portal_row, all_rows_for_number=rows))
 
         criteria.append(
             CriterionResult(
