@@ -835,12 +835,26 @@ def build_default_fake_llm() -> FakeLLM:
     )
 
 
-def build_llm() -> LLMClient:
-    """Prefer Anthropic when ANTHROPIC_API_KEY is set; otherwise FakeLLM (CI)."""
-    import os
+def build_llm(*, require_anthropic: bool = False) -> LLMClient:
+    """Prefer Anthropic when ANTHROPIC_API_KEY is set; otherwise FakeLLM (CI).
 
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    Defaults to Claude Haiku (`OPERATOR_MODEL` / `DEFAULT_OPERATOR_MODEL`).
+    Never hardcodes Opus/Sonnet. Raises clearly if a real LLM is required but
+    the key is missing.
+    """
+    from ark_operator.config import get_settings
+
+    settings = get_settings()
+    if settings.anthropic_api_key:
         from ark_operator.llm.anthropic_client import AnthropicClient
 
-        return AnthropicClient()
+        return AnthropicClient(
+            api_key=settings.anthropic_api_key,
+            model=settings.operator_model,
+        )
+    if require_anthropic:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is required (set in environment or `.env`; "
+            "see `.env.example`). OPERATOR_MODEL defaults to claude-haiku-5-5."
+        )
     return build_default_fake_llm()

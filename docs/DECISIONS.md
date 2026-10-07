@@ -60,6 +60,8 @@ Update when a phase introduces a new default.
 | Crash-resume eval | Scenario 12 sets `crash_after_invoices` then resumes from the same event store |
 | Duplicate keys on resume | `PolicyEngine.remember_seen()` re-seeds from terminal idempotency cache (INV-1004 still flags) |
 | LLM selection | `build_llm()` → AnthropicClient if `ANTHROPIC_API_KEY` else FakeLLM |
+| Default model | `OPERATOR_MODEL=claude-haiku-5-5` (cost-efficient structured JSON; not Opus/Sonnet) |
+| LLM temperature | `temperature=0` on Anthropic plan/understand structured calls (SPEC) |
 | Files sandbox | `company_world/` only — never `Path.cwd()` (`.env` exposure) |
 | UI run start | Background thread so Work screen + SSE are live while pipeline runs |
 | COMPLETED outcome | Set only after independent verifier passes (provisional NEEDS_ATTENTION post-submit) |

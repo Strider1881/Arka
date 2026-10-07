@@ -9,7 +9,7 @@ ambiguity requires it.
 ## Status
 
 **Phases P0–P10 implemented** for the AcmeCorp invoice scenario (FakeLLM/CI path).
-Real Anthropic path is wired (`AnthropicClient`) but gated on `ANTHROPIC_API_KEY`
+Real Anthropic path is wired (`AnthropicClient`, default `OPERATOR_MODEL=claude-haiku-5-5`) but gated on `ANTHROPIC_API_KEY`
 (not present in the build environment — not faked as a real-LLM pass).
 
 Demo GIF: see local run via `make demo` / UI; embed link TBD after recording.

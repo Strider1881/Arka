@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
+from ark_operator.config import DEFAULT_OPERATOR_MODEL, get_settings
 from ark_operator.llm.base import LLMResponse
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 
 class AnthropicClient:
-    """Real LLMClient backed by the Anthropic API."""
+    """Real LLMClient backed by the Anthropic API (Haiku by default)."""
 
     def __init__(
         self,
@@ -25,11 +25,16 @@ class AnthropicClient:
         model: str | None = None,
         prompts_dir: Path | None = None,
     ) -> None:
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        self.model = model or os.environ.get("OPERATOR_MODEL", "claude-sonnet-4-20250514")
+        settings = get_settings()
+        self.api_key = api_key if api_key is not None else settings.anthropic_api_key
+        self.model = model if model is not None else (settings.operator_model or DEFAULT_OPERATOR_MODEL)
         self.prompts_dir = prompts_dir or PROMPTS_DIR
         if not self.api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY is required for AnthropicClient")
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY is required for AnthropicClient. "
+                "Set it in the environment or `.env` (see `.env.example`), "
+                "or omit the key to use FakeLLM in CI."
+            )
 
     def _load_prompt(self, prompt_id: str, variables: dict[str, Any]) -> str:
         path = self.prompts_dir / f"{prompt_id}.md"
@@ -68,9 +73,11 @@ class AnthropicClient:
         if schema is not None:
             system += f" JSON schema fields: {list(schema.model_fields)}"
 
+        # SPEC: temperature 0 for plan/verify-related structured calls.
         msg = client.messages.create(
             model=self.model,
             max_tokens=4096,
+            temperature=0,
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )

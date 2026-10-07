@@ -26,5 +26,11 @@ def test_fake_llm_scripted() -> None:
 
 
 def test_settings_defaults() -> None:
+    from ark_operator.config import DEFAULT_OPERATOR_MODEL
+
     settings = Settings()
     assert settings.session_expiry_n == 5
+    assert settings.operator_model == DEFAULT_OPERATOR_MODEL
+    assert DEFAULT_OPERATOR_MODEL.startswith("claude-haiku")
+    assert "opus" not in DEFAULT_OPERATOR_MODEL
+    assert "sonnet" not in DEFAULT_OPERATOR_MODEL
