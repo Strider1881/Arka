@@ -27,7 +27,10 @@ class AnthropicClient:
     ) -> None:
         settings = get_settings()
         self.api_key = api_key if api_key is not None else settings.anthropic_api_key
-        self.model = model if model is not None else (settings.operator_model or DEFAULT_OPERATOR_MODEL)
+        if model is not None:
+            self.model = model
+        else:
+            self.model = settings.operator_model or DEFAULT_OPERATOR_MODEL
         self.prompts_dir = prompts_dir or PROMPTS_DIR
         if not self.api_key:
             raise RuntimeError(
