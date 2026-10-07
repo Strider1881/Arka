@@ -95,8 +95,10 @@ class EventStore:
                 (run_id, seq, ts, et.value, step_id, json.dumps(body)),
             )
             conn.commit()
+            row_id = cur.lastrowid
+            assert row_id is not None
             return EventRecord(
-                id=int(cur.lastrowid),
+                id=int(row_id),
                 run_id=run_id,
                 seq=seq,
                 ts=ts,
@@ -180,7 +182,8 @@ class EventStore:
             ).fetchone()
         if not row:
             return None
-        return json.loads(row["result_json"])
+        loaded: dict[str, Any] = json.loads(row["result_json"])
+        return loaded
 
     def save_approval(
         self,

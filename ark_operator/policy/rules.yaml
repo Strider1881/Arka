@@ -1,9 +1,22 @@
-# STUB: full policy rules land in P6.
-# Placeholder thresholds aligned with company knowledge (SPEC §8).
-
 approval_threshold_usd: 5000
 tolerance_pct: 2.0
 
 tool_permissions:
-  # name: risk class — filled in when tools land
-  stub_example: READ
+  files: READ
+  pdf_extract: READ
+  knowledge_search: READ
+  portal_api: READ
+  ask_human: READ
+  browser: IRREVERSIBLE
+  desktop: IRREVERSIBLE
+
+risk_to_decision:
+  READ: ALLOW
+  REVERSIBLE_WRITE: ALLOW
+  IRREVERSIBLE: REQUIRE_APPROVAL
+
+blocked_vendors:
+  - Pied Piper Cloud
+
+vendor_aliases:
+  Northwind Supply Co: Northwind Supplies

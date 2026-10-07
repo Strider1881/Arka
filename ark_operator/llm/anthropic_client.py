@@ -51,7 +51,12 @@ class AnthropicClient:
         *,
         schema: type[BaseModel] | None = None,
     ) -> LLMResponse:
-        import anthropic
+        try:
+            import anthropic
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "anthropic package not installed; uv add anthropic or use FakeLLM"
+            ) from exc
 
         prompt = self._load_prompt(prompt_id, variables)
         client = anthropic.Anthropic(api_key=self.api_key)
@@ -66,7 +71,6 @@ class AnthropicClient:
         msg = client.messages.create(
             model=self.model,
             max_tokens=4096,
-            temperature=0,
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )

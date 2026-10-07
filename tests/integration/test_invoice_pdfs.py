@@ -29,7 +29,8 @@ def test_pdf_extracts_core_fields(inv: dict[str, object]) -> None:
     path = INBOX / f"{inv['number']}.pdf"
     with pdfplumber.open(path) as pdf:
         text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-    assert str(inv["number"]) in text
+    doc_number = inv.get("document_number", inv["number"])
+    assert str(doc_number) in text
     assert str(inv["vendor"]) in text
     amount = float(inv["amount"])
     # reportlab formats with commas for thousands

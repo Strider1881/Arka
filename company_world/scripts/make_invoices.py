@@ -38,6 +38,8 @@ INVOICES: list[dict[str, object]] = [
     },
     {
         "number": "INV-1004",
+        # Document reuses INV-1001 number (duplicate); filename stays INV-1004.pdf
+        "document_number": "INV-1001",
         "vendor": "Northwind Supplies",
         "amount": 1240.00,
         "po": "PO-501",
@@ -116,8 +118,9 @@ def _draw_invoice(path: Path, data: dict[str, object]) -> None:
     c.drawString(72, y, "AcmeCorp Accounts Payable — Vendor Invoice")
     y -= 36
 
+    doc_number = data.get("document_number", data["number"])
     lines = [
-        f"Invoice Number: {data['number']}",
+        f"Invoice Number: {doc_number}",
         f"Vendor: {data['vendor']}",
         f"Amount: ${float(data['amount']):,.2f}",
         f"PO Number: {data['po'] or 'N/A'}",
