@@ -30,7 +30,7 @@ test:
 		--cov=ark_operator.verify \
 		--cov=ark_operator.events \
 		--cov-report=term-missing:skip-covered \
-		--cov-fail-under=88
+		--cov-fail-under=89
 
 lint:
 	uv run ruff check ark_operator company_world evals tests

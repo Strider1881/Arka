@@ -49,6 +49,7 @@ from ark_operator.tools.pdf_extract import PdfExtractTool
 from ark_operator.tools.portal_api import PortalApiTool
 from ark_operator.tools.registry import ToolRegistry
 from ark_operator.tools.secrets import portal_operator_credentials
+from ark_operator.verify.evidence import collect_run_evidence
 from ark_operator.verify.verifier import Verifier
 
 
@@ -291,11 +292,57 @@ class InvoicePipeline:
                     processed += 1
                     continue
 
+                budget_status = self.budgets.check()
+                if budget_status == "warning":
+                    self.budgets.mark_warned()
+                    self.store.append(
+                        run_id,
+                        EventType.BUDGET_WARNING,
+                        {"ratios": self.budgets.ratios()},
+                    )
+                if budget_status == "exhausted":
+                    report = self._build_report(
+                        run_id,
+                        invoices,
+                        VerificationResult(passed=False, overall_notes="budget exhausted"),
+                        partial=True,
+                        partial_reason="budget exhausted",
+                    )
+                    result.report = report
+                    self.store.append(
+                        run_id, EventType.REPORT_CREATED, report.model_dump(mode="json")
+                    )
+                    self.store.append(
+                        run_id,
+                        EventType.RUN_COMPLETED,
+                        {"ok": False, "partial": True, "reason": "budget exhausted"},
+                    )
+                    go(RunState.REPORT)
+                    go(RunState.COMPLETE)
+                    result.steps = self.budgets.steps
+                    return result
+
                 decided = self.policy.decide_invoice(inv)
                 inv.decision = decided.decision
                 inv.decision_reason = decided.decision_reason
                 inv.canonical_vendor = decided.canonical_vendor
+                inv.policy_citations = list(decided.policy_citations)
                 self.policy.remember_seen(inv)
+
+                # Hierarchical plan: per-invoice sub-plan once fields + decision known.
+                sub = self.planner.create_invoice_subplan(inv, run_id=run_id)
+                self.store.append(
+                    run_id,
+                    EventType.PLAN_CREATED,
+                    {
+                        "plan_id": sub.id,
+                        "kind": "invoice_subplan",
+                        "invoice_number": inv.invoice_number,
+                        "file_id": file_id,
+                        "decision": inv.decision.value if inv.decision else None,
+                        "steps": [s.model_dump(mode="json") for s in sub.steps],
+                    },
+                )
 
                 if inv.security_finding:
                     self.store.append(
@@ -334,6 +381,9 @@ class InvoicePipeline:
                         "reason": inv.decision_reason,
                         "canonical_vendor": inv.canonical_vendor,
                         "invoice_number": inv.invoice_number,
+                        "policy_citations": [
+                            c.model_dump(mode="json") for c in inv.policy_citations
+                        ],
                     },
                     step_id=step_id,
                 )
@@ -437,7 +487,15 @@ class InvoicePipeline:
         report = self._build_report(run_id, invoices, verification)
         result.report = report
         self.store.append(run_id, EventType.REPORT_CREATED, report.model_dump(mode="json"))
-        self.episodic.distill_from_run(run_id, invoices, verification)
+        recoveries = [
+            dict(ev.payload)
+            for ev in self.store.list_for_run(run_id)
+            if ev.type == EventType.RECOVERY_ATTEMPTED
+        ]
+        result.recoveries = max(result.recoveries, len(recoveries))
+        self.episodic.distill_from_run(
+            run_id, invoices, verification, recoveries=recoveries
+        )
         self.store.append(run_id, EventType.RUN_COMPLETED, {"ok": verification.passed})
         go(RunState.COMPLETE)
         result.steps = self.budgets.steps
@@ -526,17 +584,7 @@ class InvoicePipeline:
             if status == "PENDING" or self.config.auto_approve is None:
                 if status != "PENDING":
                     ask = self.registry.get("ask_human")
-                    res = ask.run(
-                        {
-                            "prompt": (
-                                f"No matching PO for {inv.invoice_number} "
-                                f"({inv.vendor}, ${inv.amount}). How to proceed?"
-                            ),
-                            "invoice_number": inv.invoice_number,
-                            "file_id": file_id,
-                            "options": ["provide_po", "reject"],
-                        }
-                    )
+                    res = ask.run(self._human_prompt(inv, file_id, kind="missing_po"))
                     pending_approvals.append(str(res.data["approval_id"]))
                 else:
                     for row in self.store.pending_approvals(run_id):
@@ -567,59 +615,20 @@ class InvoicePipeline:
             if status == "APPROVED" or self.config.auto_approve is True:
                 if status != "APPROVED":
                     ask = self.registry.get("ask_human")
-                    res = ask.run(
-                        {
-                            "prompt": (
-                                f"Approve invoice {inv.invoice_number} for "
-                                f"{inv.canonical_vendor or inv.vendor} amounting "
-                                f"${inv.amount:,.2f}? Policy: over ${self.policy.threshold:,.0f}."
-                            ),
-                            "invoice_number": inv.invoice_number,
-                            "file_id": file_id,
-                            "amount": inv.amount,
-                            "options": ["approve", "reject"],
-                            "requires_portal_submit": True,
-                        }
-                    )
+                    res = ask.run(self._human_prompt(inv, file_id, kind="over_threshold"))
                     self._apply_approval(run_id, str(res.data["approval_id"]), "approve")
                 # Irreversible portal write only after clearance
                 return self._browser_submit(run_id, inv, ledger)
             if status == "REJECTED" or self.config.auto_approve is False:
                 if status != "REJECTED":
                     ask = self.registry.get("ask_human")
-                    res = ask.run(
-                        {
-                            "prompt": (
-                                f"Approve invoice {inv.invoice_number} for "
-                                f"{inv.canonical_vendor or inv.vendor} amounting "
-                                f"${inv.amount:,.2f}? Policy: over ${self.policy.threshold:,.0f}."
-                            ),
-                            "invoice_number": inv.invoice_number,
-                            "file_id": file_id,
-                            "amount": inv.amount,
-                            "options": ["approve", "reject"],
-                            "requires_portal_submit": True,
-                        }
-                    )
+                    res = ask.run(self._human_prompt(inv, file_id, kind="over_threshold"))
                     self._apply_approval(run_id, str(res.data["approval_id"]), "reject")
                 return InvoiceOutcome.REFUSED
             # Pause BEFORE any irreversible write (P4 / P6).
             if status != "PENDING":
                 ask = self.registry.get("ask_human")
-                res = ask.run(
-                    {
-                        "prompt": (
-                            f"Approve invoice {inv.invoice_number} for "
-                            f"{inv.canonical_vendor or inv.vendor} amounting "
-                            f"${inv.amount:,.2f}? Policy: over ${self.policy.threshold:,.0f}."
-                        ),
-                        "invoice_number": inv.invoice_number,
-                        "file_id": file_id,
-                        "amount": inv.amount,
-                        "options": ["approve", "reject"],
-                        "requires_portal_submit": True,
-                    }
-                )
+                res = ask.run(self._human_prompt(inv, file_id, kind="over_threshold"))
                 pending_approvals.append(str(res.data["approval_id"]))
             else:
                 for row in self.store.pending_approvals(run_id):
@@ -628,6 +637,49 @@ class InvoicePipeline:
 
         # ALLOW submit
         return self._browser_submit(run_id, inv, ledger)
+
+    def _human_prompt(self, inv: InvoiceRecord, file_id: str, *, kind: str) -> dict[str, Any]:
+        """Approval/question payload with summary, policy, and risk for the UI card."""
+        citations = [c.model_dump(mode="json") for c in inv.policy_citations]
+        vendor = inv.canonical_vendor or inv.vendor
+        if kind == "missing_po":
+            prompt = (
+                f"No matching PO for {inv.invoice_number} "
+                f"({vendor}, ${inv.amount:,.2f}). How to proceed?"
+            )
+            options = ["provide_po", "reject"]
+            risk = RiskLevel.READ.value
+            requires_submit = False
+        else:
+            prompt = (
+                f"Approve invoice {inv.invoice_number} for {vendor} amounting "
+                f"${inv.amount:,.2f}? Policy: over ${self.policy.threshold:,.0f}."
+            )
+            options = ["approve", "reject"]
+            risk = RiskLevel.IRREVERSIBLE.value
+            requires_submit = True
+            if not citations:
+                citations = [
+                    {
+                        "file": "approval_policy.md",
+                        "section": "Threshold",
+                        "excerpt": f">${self.policy.threshold:,.0f} needs manager approval",
+                    }
+                ]
+        return {
+            "prompt": prompt,
+            "invoice_number": inv.invoice_number,
+            "file_id": file_id,
+            "vendor": vendor,
+            "amount": inv.amount,
+            "po_number": inv.po_number,
+            "decision": inv.decision.value if inv.decision else None,
+            "reason": inv.decision_reason,
+            "risk": risk,
+            "policy_cited": citations,
+            "options": options,
+            "requires_portal_submit": requires_submit,
+        }
 
     def _browser_submit(
         self, run_id: str, inv: InvoiceRecord, ledger: IrreversibleLedger
@@ -667,6 +719,13 @@ class InvoicePipeline:
             },
         )
         res = do_submit()
+        obs_h = str((res.data or {}).get("url") or "") + "|" + str((res.data or {}).get("banner") or "")
+        if self.stall.observe(f"submit:{inv.invoice_number}", obs_h):
+            self.store.append(
+                run_id,
+                EventType.STALL_DETECTED,
+                {"invoice_number": inv.invoice_number, "idempotency_key": key},
+            )
         if (res.data or {}).get("recovered_from_label"):
             self.store.append(
                 run_id,
@@ -677,6 +736,8 @@ class InvoicePipeline:
                     "idempotency_key": key,
                 },
             )
+            result_recoveries = getattr(self, "_recovery_count", 0) + 1
+            self._recovery_count = result_recoveries
         if not res.ok:
             if res.failure is None:
                 res = res.model_copy(
@@ -711,6 +772,18 @@ class InvoicePipeline:
                 )
                 return InvoiceOutcome.NEEDS_ATTENTION
 
+        evidence_ids = list((res.data or {}).get("evidence") or [])
+        inv.evidence_ids = evidence_ids
+        for eid in evidence_ids:
+            self.store.append(
+                run_id,
+                EventType.EVIDENCE_ADDED,
+                {
+                    "evidence_id": eid,
+                    "invoice_number": inv.invoice_number,
+                    "kind": "screenshot",
+                },
+            )
         self.store.append(
             run_id,
             EventType.OBSERVATION,
@@ -719,6 +792,7 @@ class InvoicePipeline:
                 "url": (res.data or {}).get("url"),
                 "banner": (res.data or {}).get("banner"),
                 "recovered_from_label": (res.data or {}).get("recovered_from_label"),
+                "evidence": evidence_ids,
             },
         )
         if res.ok:
@@ -763,37 +837,51 @@ class InvoicePipeline:
         run_id: str,
         invoices: list[InvoiceRecord],
         verification: VerificationResult,
+        *,
+        partial: bool = False,
+        partial_reason: str = "",
     ) -> RunReport:
         lines: list[InvoiceLineResult] = []
         needs: list[str] = []
         security: list[str] = []
+        evidence = collect_run_evidence(
+            self.config.data_dir / "evidence" / run_id,
+            self.config.data_dir / "verify-evidence" / run_id,
+        )
         for inv in invoices:
             outcome = inv.outcome or InvoiceOutcome.NEEDS_ATTENTION
             # Operator may only report "completed" when the independent verifier passes (SPEC §7).
             if outcome == InvoiceOutcome.COMPLETED and not verification.passed:
                 outcome = InvoiceOutcome.NEEDS_ATTENTION
                 inv.outcome = outcome
-            verified = outcome == InvoiceOutcome.COMPLETED and verification.passed
+            if partial and outcome == InvoiceOutcome.COMPLETED:
+                outcome = InvoiceOutcome.NEEDS_ATTENTION
+                inv.outcome = outcome
+            verified = outcome == InvoiceOutcome.COMPLETED and verification.passed and not partial
             if outcome in {InvoiceOutcome.NEEDS_ATTENTION, InvoiceOutcome.FLAGGED}:
                 needs.append(inv.invoice_number)
             if inv.security_finding:
                 security.append(inv.invoice_number)
+            citations = list(inv.policy_citations) or [
+                PolicyCitation(file="invoice_processing_sop.md", section="Outcomes")
+            ]
             lines.append(
                 InvoiceLineResult(
                     invoice_number=inv.invoice_number,
                     outcome=outcome,
                     reason=inv.decision_reason,
-                    policy_cited=[
-                        PolicyCitation(file="invoice_processing_sop.md", section="Outcomes")
-                    ],
+                    policy_cited=citations,
+                    evidence_ids=list(inv.evidence_ids),
                     verified=verified,
                 )
             )
         summary = (
             f"Processed {len(invoices)} invoices. "
-            f"Verified={'yes' if verification.passed else 'no'} "
+            f"Verified={'yes' if verification.passed and not partial else 'no'} "
             f"({verification.overall_notes})."
         )
+        if partial:
+            summary = f"Partial report ({partial_reason}). " + summary
         return RunReport(
             run_id=run_id,
             summary=summary,
@@ -801,6 +889,9 @@ class InvoicePipeline:
             verification=verification,
             needs_attention=needs,
             security_findings=security,
+            evidence=evidence,
+            partial=partial,
+            partial_reason=partial_reason,
         )
 
 

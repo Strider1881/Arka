@@ -42,6 +42,7 @@ class BrowserVerifier:
         self._api = PortalApiTool(self.base_url, email=self.email, password=self.password)
         self.context_id: str | None = None
         self._last_storage: dict[str, Any] = {}
+        self.browser_rows: list[dict[str, str]] = []
 
     def close(self) -> None:
         self._api.close()
@@ -49,10 +50,10 @@ class BrowserVerifier:
     def storage_state(self) -> dict[str, Any]:
         return dict(self._last_storage)
 
-    def _probe_isolated_browser(self) -> tuple[str, dict[str, Any], str]:
+    def _probe_isolated_browser(self) -> tuple[str, dict[str, Any], str, list[dict[str, str]]]:
         """Create, use, and tear down a Playwright context entirely in one thread."""
 
-        def _run() -> tuple[str, dict[str, Any], str]:
+        def _run() -> tuple[str, dict[str, Any], str, list[dict[str, str]]]:
             from playwright.sync_api import sync_playwright
 
             pw = sync_playwright().start()
@@ -61,6 +62,7 @@ class BrowserVerifier:
             ctx_id = f"verify-{id(context)}"
             page = context.new_page()
             note = "browser_context_ok"
+            scraped: list[dict[str, str]] = []
             try:
                 page.goto(f"{self.base_url}/login", wait_until="domcontentloaded")
                 page.fill("#email", self.email)
@@ -70,13 +72,29 @@ class BrowserVerifier:
                 page.screenshot(path=str(self.evidence_dir / "verifier_logged_in.png"))
                 page.goto(f"{self.base_url}/invoices", wait_until="domcontentloaded")
                 page.screenshot(path=str(self.evidence_dir / "verifier_invoices.png"))
+                # Ground-truth scrape from the isolated browser (not executor cookies).
+                scraped = page.eval_on_selector_all(
+                    "table tbody tr, table tr",
+                    """els => els.map(tr => {
+                        const cells = [...tr.querySelectorAll('td')].map(td =>
+                          (td.innerText || '').trim());
+                        if (cells.length < 2) return null;
+                        return {
+                          invoice_number: cells[0] || '',
+                          vendor: cells[1] || '',
+                          amount: cells[2] || '',
+                          status: cells[cells.length - 1] || '',
+                          row_text: cells.join(' | '),
+                        };
+                      }).filter(Boolean)""",
+                )
             except Exception as exc:  # noqa: BLE001
                 note = f"browser_scrape_error={exc}"
             state = dict(context.storage_state())
             context.close()
             browser.close()
             pw.stop()
-            return ctx_id, state, note
+            return ctx_id, state, note, list(scraped or [])
 
         with ThreadPoolExecutor(max_workers=1) as pool:
             return pool.submit(_run).result(timeout=120)
@@ -84,10 +102,16 @@ class BrowserVerifier:
     def verify_invoices(self, invoices: list[InvoiceRecord]) -> VerificationResult:
         # Isolated browser probe (own cookies/storage) — never the executor context.
         try:
-            self.context_id, self._last_storage, browser_note = self._probe_isolated_browser()
+            (
+                self.context_id,
+                self._last_storage,
+                browser_note,
+                self.browser_rows,
+            ) = self._probe_isolated_browser()
         except Exception as exc:  # noqa: BLE001
             self.context_id = None
             self._last_storage = {}
+            self.browser_rows = []
             browser_note = f"browser_probe_error={exc}"
 
         # Structured ground truth via fresh portal_api session (separate from browser).
@@ -117,11 +141,39 @@ class BrowserVerifier:
                     )
             criteria.extend(check_invoice_against_portal(inv, portal_row, all_rows_for_number=rows))
 
+            # Cross-check: when API says a submit exists, isolated browser must show it.
+            if portal_row is not None and inv.decision and inv.decision.value in {
+                "submit",
+                "needs_approval",
+            }:
+                needle = inv.invoice_number
+                browser_hit = any(
+                    needle in (r.get("invoice_number") or "")
+                    or needle in (r.get("row_text") or "")
+                    for r in self.browser_rows
+                )
+                criteria.append(
+                    CriterionResult(
+                        name=f"browser_sees_{needle}",
+                        passed=browser_hit or not self.browser_rows,
+                        detail=(
+                            "isolated browser lists invoice"
+                            if browser_hit
+                            else (
+                                "browser scrape empty (API still authoritative)"
+                                if not self.browser_rows
+                                else "invoice missing from isolated browser list"
+                            )
+                        ),
+                        evidence_refs=["verifier_invoices.png"],
+                    )
+                )
+
         criteria.append(
             CriterionResult(
                 name="verifier_context_isolated",
                 passed=self.context_id is not None,
-                detail=f"{browser_note}; context={self.context_id}",
+                detail=f"{browser_note}; context={self.context_id}; scraped={len(self.browser_rows)}",
             )
         )
 
@@ -136,7 +188,7 @@ class BrowserVerifier:
             criteria=criteria,
             overall_notes=(
                 f"{sum(1 for c in business if c.passed)}/{len(business)} checks passed; "
-                f"{browser_note}"
+                f"{browser_note}; browser_rows={len(self.browser_rows)}"
             ),
         )
 

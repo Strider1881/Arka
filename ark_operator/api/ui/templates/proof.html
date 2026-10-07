@@ -3,12 +3,15 @@
 {% block content %}
 <h1>Proof</h1>
 <p class="lead">{{ report.summary if report else "Run finished." }}</p>
+{% if report and report.partial %}
+<p class="warn">Partial report{% if report.partial_reason %}: {{ report.partial_reason }}{% endif %}</p>
+{% endif %}
 
 {% if report and report.verification %}
 <div class="card">
   <h2>Verified</h2>
-  <p class="{% if report.verification.passed %}ok{% else %}bad{% endif %}">
-    {{ "PASS" if report.verification.passed else "FAIL" }}
+  <p class="{% if report.verification.passed and not report.partial %}ok{% else %}bad{% endif %}">
+    {{ "PASS" if report.verification.passed and not report.partial else "FAIL" }}
     · {{ report.verification.confidence }}
     · {{ report.verification.overall_notes }}
   </p>
@@ -30,19 +33,40 @@
 <div class="card">
   <h2>Invoices</h2>
   <table>
-    <thead><tr><th>Invoice</th><th>Outcome</th><th>Reason</th><th>Verified</th></tr></thead>
+    <thead><tr><th>Invoice</th><th>Outcome</th><th>Reason</th><th>Policy</th><th>Verified</th></tr></thead>
     <tbody>
     {% for inv in report.invoices %}
       <tr>
         <td>{{ inv.invoice_number }}</td>
         <td>{{ inv.outcome }}</td>
         <td>{{ inv.reason }}</td>
+        <td class="status">
+          {% for p in inv.policy_cited %}
+            {{ p.file }}{% if p.section %} §{{ p.section }}{% endif %}{% if not loop.last %}; {% endif %}
+          {% endfor %}
+        </td>
         <td>{{ "yes" if inv.verified else "no" }}</td>
       </tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
+
+{% if evidence_thumbs %}
+<div class="card">
+  <h2>Evidence</h2>
+  <div class="thumbs">
+    {% for ev in evidence_thumbs %}
+    <figure>
+      <a href="{{ ev.url }}" target="_blank" rel="noopener">
+        <img src="{{ ev.url }}" alt="{{ ev.label }}" loading="lazy">
+      </a>
+      <figcaption class="status">{{ ev.label }}</figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 {% if report.security_findings %}
 <div class="card warn">

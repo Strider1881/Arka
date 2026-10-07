@@ -123,11 +123,13 @@ class InvoiceRecord(BaseModel):
     canonical_vendor: str | None = None
     decision: InvoiceDecision | None = None
     decision_reason: str = ""
+    policy_citations: list[PolicyCitation] = Field(default_factory=list)
     security_finding: bool = False
     outcome: InvoiceOutcome | None = None
     portal_status: str | None = None
     confidence: Confidence = Confidence.MEDIUM
     fields_confidence: dict[str, float] = Field(default_factory=dict)
+    evidence_ids: list[str] = Field(default_factory=list)
 
 
 class InvoiceLineResult(BaseModel):
@@ -146,6 +148,9 @@ class RunReport(BaseModel):
     verification: VerificationResult | None = None
     needs_attention: list[str] = Field(default_factory=list)
     security_findings: list[str] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=list)
+    partial: bool = False
+    partial_reason: str = ""
 
 
 class WorkingState(BaseModel):

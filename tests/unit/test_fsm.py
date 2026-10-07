@@ -32,9 +32,12 @@ def test_state_machine_persists_via_events(tmp_path: Path) -> None:
     sm.transition(RunState.UNDERSTAND)
     sm.transition(RunState.PLAN)
     sm.transition(RunState.EXECUTE)
+    # EXECUTE → REPORT is legal for budget/stall honest partial exit.
+    sm.transition(RunState.REPORT)
+    sm.transition(RunState.COMPLETE)
     with pytest.raises(IllegalTransition):
-        sm.transition(RunState.REPORT)
+        sm.transition(RunState.EXECUTE)
     states = [
         e.payload["state"] for e in store.list_for_run(run_id) if e.type == EventType.STATE_CHANGED
     ]
-    assert states == ["UNDERSTAND", "PLAN", "EXECUTE"]
+    assert states == ["UNDERSTAND", "PLAN", "EXECUTE", "REPORT", "COMPLETE"]

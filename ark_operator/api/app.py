@@ -8,8 +8,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from ark_operator.config import get_settings
@@ -18,6 +18,7 @@ from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
 from ark_operator.runtime.orchestrator import Orchestrator
 from ark_operator.runtime.pipeline import InvoicePipeline, PipelineConfig, build_llm
+from ark_operator.verify.evidence import collect_run_evidence
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "ui" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -43,8 +44,77 @@ def _pipeline_cfg(*, auto_approve: bool | None = None) -> PipelineConfig:
     )
 
 
+def _invoice_checklist(store: EventStore, run_id: str) -> list[dict[str, str]]:
+    """Calm progress list for Screen 2 — derived from events only."""
+    rows: dict[str, dict[str, str]] = {}
+    for ev in store.list_for_run(run_id):
+        if not ev.step_id or ":act" not in ev.step_id:
+            continue
+        file_id = ev.step_id.split(":")[0]
+        row = rows.setdefault(file_id, {"id": file_id, "status": "pending"})
+        if ev.type == EventType.STEP_STARTED:
+            row["status"] = "working"
+            if ev.payload.get("decision"):
+                row["decision"] = str(ev.payload["decision"])
+        elif ev.type == EventType.STEP_COMPLETED:
+            row["status"] = "done"
+            if ev.payload.get("decision"):
+                row["decision"] = str(ev.payload["decision"])
+            if ev.payload.get("outcome"):
+                row["outcome"] = str(ev.payload["outcome"])
+        elif ev.type == EventType.STEP_FAILED:
+            row["status"] = "failed"
+    return list(rows.values())
+
+
+def _evidence_thumbs(run_id: str, report: dict[str, Any] | None) -> list[dict[str, str]]:
+    thumbs: list[dict[str, str]] = []
+    seen: set[str] = set()
+    if report:
+        for item in report.get("evidence") or []:
+            path = str(item.get("path") or "")
+            label = str(item.get("label") or item.get("id") or Path(path).stem)
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            thumbs.append(
+                {
+                    "label": label,
+                    "url": f"/runs/{run_id}/evidence?path={path}",
+                }
+            )
+    if thumbs:
+        return thumbs[:24]
+    # Fallback: scan known evidence roots for this run.
+    roots = [
+        _data_dir() / "runs" / "evidence" / run_id,
+        _data_dir() / "runs" / "verify-evidence" / run_id,
+        _data_dir() / "evidence" / run_id,
+        _data_dir() / "verify-evidence" / run_id,
+    ]
+    for ev in collect_run_evidence(*roots):
+        if ev.path in seen:
+            continue
+        seen.add(ev.path)
+        thumbs.append({"label": ev.label, "url": f"/runs/{run_id}/evidence?path={ev.path}"})
+    return thumbs[:24]
+
+
+def _safe_evidence_path(raw: str) -> Path:
+    """Resolve evidence path only under operator data dir (no path escape)."""
+    data = _data_dir().resolve()
+    path = Path(raw).resolve()
+    if data not in path.parents and path != data:
+        raise HTTPException(status_code=403, detail="evidence path outside data dir")
+    if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=400, detail="unsupported evidence type")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="evidence not found")
+    return path
+
+
 def create_operator_app() -> FastAPI:
-    app = FastAPI(title="Operator", version="0.2.0")
+    app = FastAPI(title="Operator", version="0.3.0")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -90,6 +160,7 @@ def create_operator_app() -> FastAPI:
             if report and interpretation:
                 break
         approvals = store.pending_approvals(run_id)
+        checklist = _invoice_checklist(store, run_id)
         template = (
             "proof.html"
             if working.state in {"COMPLETE", "FAILED", "ESCALATED"} and report
@@ -105,9 +176,17 @@ def create_operator_app() -> FastAPI:
                 "report": report,
                 "interpretation": interpretation,
                 "approvals": approvals,
+                "checklist": checklist,
+                "evidence_thumbs": _evidence_thumbs(run_id, report),
                 "timeline": replay_run(store, run_id)[-30:],
             },
         )
+
+    @app.get("/runs/{run_id}/evidence")
+    def evidence_file(run_id: str, path: str) -> FileResponse:
+        _ = run_id
+        safe = _safe_evidence_path(path)
+        return FileResponse(safe)
 
     @app.post("/runs/{run_id}/approvals/{approval_id}")
     def decide(run_id: str, approval_id: str, decision: str = Form(...)) -> RedirectResponse:

@@ -17,6 +17,7 @@ ALLOWED: dict[RunState, frozenset[RunState]] = {
             RunState.AWAIT_APPROVAL,
             RunState.VERIFY,
             RunState.PLAN,
+            RunState.REPORT,  # budget / stall honest partial exit
             RunState.FAILED,
             RunState.ESCALATED,
         }

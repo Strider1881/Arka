@@ -74,3 +74,9 @@ Update when a phase introduces a new default.
 | FakeLLM boundary | Scripts understand/plan **structure** only; never policy, portal writes, or verify |
 | Settings source | `get_settings()` loads repo-root `.env` + process env; CLI/UI/secrets/redact use it |
 | Real-LLM P4 proof | `tests/integration/test_real_llm_p4.py` (skip without key); evals stay FakeLLM |
+| Budget partial exit | `EXECUTE → REPORT` legal for honest partial report when budgets exhaust |
+| Per-invoice sub-plans | Emitted as `PLAN_CREATED` (`kind=invoice_subplan`) after policy decision |
+| Approval card context | AskHuman context carries vendor/amount/PO/risk/policy_cited for UI |
+| Verifier browser scrape | Isolated Playwright scrapes invoice table text; API remains structured GT |
+| Episodic distill | Lessons derived from `RECOVERY_ATTEMPTED` / security findings, not hardcoded-only |
+| Evidence on Proof | `collect_run_evidence` + sandboxed `/runs/{id}/evidence?path=` under data dir |

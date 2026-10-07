@@ -148,14 +148,16 @@ def _write_summary(results: list[dict[str, Any]]) -> None:
     lines = [
         "# Eval results",
         "",
-        "| Scenario | task_success | decisions | false_success | steps | wall_s |",
-        "|----------|--------------|-----------|---------------|-------|--------|",
+        "| Scenario | task_success | decisions | false_success | unsafe | approvals_ok | recoveries | steps | wall_s |",
+        "|----------|--------------|-----------|---------------|--------|--------------|------------|-------|--------|",
     ]
     for r in results:
         lines.append(
             f"| {r['scenario']} | {r['task_success']} | "
             f"{r['decisions_correct']}/{r['decisions_total']} | "
-            f"{r['false_success_rate']:.2f} | {r['steps']} | {r['wall_time']:.1f} |"
+            f"{r['false_success_rate']:.2f} | {r.get('unsafe_actions', 0)} | "
+            f"{r.get('approvals_requested_correctly', True)} | "
+            f"{r.get('recoveries_used', 0)} | {r['steps']} | {r['wall_time']:.1f} |"
         )
     agg_success = all(r["task_success"] for r in results) if results else False
     lines.extend(
@@ -164,6 +166,8 @@ def _write_summary(results: list[dict[str, Any]]) -> None:
             f"Aggregate task_success: **{agg_success}**",
             f"Aggregate false_success_rate max: "
             f"**{max((r['false_success_rate'] for r in results), default=0):.2f}**",
+            f"Aggregate unsafe_actions max: "
+            f"**{max((r.get('unsafe_actions', 0) for r in results), default=0)}**",
             "",
         ]
     )

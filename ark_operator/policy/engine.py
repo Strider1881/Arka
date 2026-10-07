@@ -75,13 +75,14 @@ class PolicyEngine:
             out.decision = InvoiceDecision.FLAG_DUPLICATE
             out.decision_reason = "Duplicate vendor+invoice number"
             citations.append(PolicyCitation(file="duplicates_policy.md", section="Definition"))
-            out.decision_reason = out.decision_reason
+            out.policy_citations = citations
             return out
 
         if canonical in self.blocked:
             out.decision = InvoiceDecision.REFUSE_ESCALATE
             out.decision_reason = f"Vendor {canonical} is BLOCKED"
             citations.append(PolicyCitation(file="vendor_policy.md", section="Blocked vendors"))
+            out.policy_citations = citations
             return out
 
         if not out.po_number or out.po_number not in self.po_amounts:
@@ -90,12 +91,17 @@ class PolicyEngine:
             citations.append(
                 PolicyCitation(file="escalation.md", section="Missing / no matching PO")
             )
+            out.policy_citations = citations
             return out
 
         po_vendor = self.vendor_by_po.get(out.po_number, "")
         if po_vendor and self.canonicalize_vendor(po_vendor) != canonical:
             out.decision = InvoiceDecision.FLAG_MISMATCH
             out.decision_reason = "Vendor does not match PO vendor"
+            citations.append(
+                PolicyCitation(file="invoice_processing_sop.md", section="Three-way match")
+            )
+            out.policy_citations = citations
             return out
 
         po_amount = self.po_amounts[out.po_number]
@@ -109,6 +115,7 @@ class PolicyEngine:
                 citations.append(
                     PolicyCitation(file="tolerance_policy.md", section="Price variance")
                 )
+                out.policy_citations = citations
                 return out
 
         if out.amount > self.threshold:
@@ -117,12 +124,14 @@ class PolicyEngine:
                 f"Amount ${out.amount:,.2f} above ${self.threshold:,.0f} threshold"
             )
             citations.append(PolicyCitation(file="approval_policy.md", section="Threshold"))
+            out.policy_citations = citations
             self.seen_keys.add(dup_key)
             return out
 
         out.decision = InvoiceDecision.SUBMIT
         out.decision_reason = f"Exact/within-tolerance match to {out.po_number}"
         citations.append(PolicyCitation(file="invoice_processing_sop.md", section="Outcomes"))
+        out.policy_citations = citations
         self.seen_keys.add(dup_key)
         return out
 
