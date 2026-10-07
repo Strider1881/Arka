@@ -493,9 +493,7 @@ class InvoicePipeline:
             if ev.type == EventType.RECOVERY_ATTEMPTED
         ]
         result.recoveries = max(result.recoveries, len(recoveries))
-        self.episodic.distill_from_run(
-            run_id, invoices, verification, recoveries=recoveries
-        )
+        self.episodic.distill_from_run(run_id, invoices, verification, recoveries=recoveries)
         self.store.append(run_id, EventType.RUN_COMPLETED, {"ok": verification.passed})
         go(RunState.COMPLETE)
         result.steps = self.budgets.steps
@@ -719,7 +717,8 @@ class InvoicePipeline:
             },
         )
         res = do_submit()
-        obs_h = str((res.data or {}).get("url") or "") + "|" + str((res.data or {}).get("banner") or "")
+        data = res.data or {}
+        obs_h = f"{data.get('url') or ''}|{data.get('banner') or ''}"
         if self.stall.observe(f"submit:{inv.invoice_number}", obs_h):
             self.store.append(
                 run_id,

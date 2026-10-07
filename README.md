@@ -8,7 +8,8 @@ ambiguity requires it.
 
 ## Status
 
-**Phases P0–P10 complete** for the AcmeCorp invoice scenario.
+**Phases P0–P10 complete** for the AcmeCorp invoice scenario (ownership pass: citations,
+sub-plans, budgets/stall, Work checklist + approval card, Proof evidence, honest evals).
 
 - **CI / FakeLLM path:** deterministic understand+plan scripts; `PolicyEngine` decides; full eval suite.
 - **Real Anthropic path:** when `ANTHROPIC_API_KEY` is set (local `.env`), CLI/UI use Haiku

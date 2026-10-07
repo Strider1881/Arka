@@ -8,6 +8,7 @@ from ark_operator.domain.enums import InvoiceDecision, PolicyDecision, RiskLevel
 from ark_operator.domain.models import InvoiceRecord
 from ark_operator.policy.engine import PolicyEngine
 from ark_operator.policy.risk import risk_to_decision
+from ark_operator.verify.browser_verifier import browser_row_mentions
 from ark_operator.verify.evidence import collect_evidence, collect_run_evidence
 
 
@@ -40,6 +41,31 @@ def test_decide_invoice_persists_policy_citations() -> None:
     assert decided.decision == InvoiceDecision.SUBMIT
     assert decided.policy_citations
     assert decided.policy_citations[0].file.endswith(".md")
+
+
+def test_decide_invoice_vendor_mismatch_cites_sop() -> None:
+    engine = PolicyEngine()
+    engine.po_amounts["PO-501"] = 1240.0
+    engine.vendor_by_po["PO-501"] = "Northwind Supplies"
+    inv = InvoiceRecord(
+        invoice_number="INV-X",
+        vendor="Globex Industrial",
+        amount=1240.0,
+        po_number="PO-501",
+    )
+    decided = engine.decide_invoice(inv)
+    assert decided.decision == InvoiceDecision.FLAG_MISMATCH
+    assert any(c.file == "invoice_processing_sop.md" for c in decided.policy_citations)
+
+
+def test_browser_row_mentions() -> None:
+    rows = [
+        {"invoice_number": "INV-1001", "row_text": "INV-1001 | Northwind | SUBMITTED"},
+        {"invoice_number": "INV-1008", "row_text": "INV-1008 | Umbrella | SUBMITTED"},
+    ]
+    assert browser_row_mentions(rows, "INV-1001")
+    assert not browser_row_mentions(rows, "INV-9999")
+    assert not browser_row_mentions([], "INV-1001")
 
 
 def test_collect_evidence(tmp_path: Path) -> None:

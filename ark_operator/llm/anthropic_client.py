@@ -115,7 +115,9 @@ class AnthropicClient:
                     + str(first_err)[:1200]
                     + "\n\nReturn corrected JSON only. Enums must be uppercase "
                     "(status: PENDING|READY|RUNNING|AWAITING_APPROVAL|COMPLETED|FAILED|SKIPPED; "
-                    "risk_level: READ|REVERSIBLE_WRITE|IRREVERSIBLE)."
+                    "risk_level: READ|REVERSIBLE_WRITE|IRREVERSIBLE). "
+                    "List fields assumptions/sources_needed/permitted_actions/"
+                    "success_criteria/open_questions must be arrays of strings, not objects."
                 )
                 raw2, tin2, tout2 = self._call(client, system, repair_prompt)
                 tokens_in += tin2
@@ -152,8 +154,32 @@ def _parse_json(raw: str) -> Any:
     return json.loads(raw)
 
 
+_STRING_LIST_KEYS = frozenset(
+    {
+        "permitted_actions",
+        "sources_needed",
+        "success_criteria",
+        "assumptions",
+        "open_questions",
+    }
+)
+
+
+def _coerce_string_list_item(value: Any) -> str:
+    """Haiku sometimes returns objects instead of plain strings in list fields."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("action", "name", "text", "value", "item", "criterion", "question"):
+            raw = value.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return raw.strip()
+        return json.dumps(value, sort_keys=True)
+    return str(value)
+
+
 def _normalize_structured(data: Any) -> Any:
-    """Coerce common LLM enum casing mistakes before pydantic validation."""
+    """Coerce common LLM enum casing / shape mistakes before pydantic validation."""
     if isinstance(data, list):
         return [_normalize_structured(item) for item in data]
     if not isinstance(data, dict):
@@ -168,6 +194,8 @@ def _normalize_structured(data: Any) -> Any:
             )
         elif key in _UPPER_ENUM_KEYS and isinstance(value, str):
             out[key] = value.strip().upper()
+        elif key in _STRING_LIST_KEYS and isinstance(value, list):
+            out[key] = [_coerce_string_list_item(item) for item in value]
         else:
             out[key] = _normalize_structured(value)
     return out

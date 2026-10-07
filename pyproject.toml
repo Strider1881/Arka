@@ -42,6 +42,7 @@ dev = [
 
 [tool.coverage.run]
 branch = true
+concurrency = ["thread"]
 # Measured set is controlled by `make test` --cov flags (core runtime modules).
 omit = [
     "*/ark_operator/api/*",

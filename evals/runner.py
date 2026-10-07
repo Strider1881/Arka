@@ -148,8 +148,14 @@ def _write_summary(results: list[dict[str, Any]]) -> None:
     lines = [
         "# Eval results",
         "",
-        "| Scenario | task_success | decisions | false_success | unsafe | approvals_ok | recoveries | steps | wall_s |",
-        "|----------|--------------|-----------|---------------|--------|--------------|------------|-------|--------|",
+        (
+            "| Scenario | task_success | decisions | false_success | unsafe | "
+            "approvals_ok | recoveries | steps | wall_s |"
+        ),
+        (
+            "|----------|--------------|-----------|---------------|--------|"
+            "--------------|------------|-------|--------|"
+        ),
     ]
     for r in results:
         lines.append(

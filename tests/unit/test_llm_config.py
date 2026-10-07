@@ -46,3 +46,16 @@ def test_normalize_structured_enum_casing() -> None:
     assert norm["steps"][0]["risk_level"] == "READ"
     assert norm["steps"][1]["status"] == "PENDING"
     assert norm["steps"][1]["risk_level"] == "IRREVERSIBLE"
+
+
+def test_normalize_structured_string_list_objects() -> None:
+    raw = {
+        "permitted_actions": [
+            {"action": "Submit invoice", "risk_level": "REVERSIBLE_WRITE"},
+            "verify",
+        ],
+        "assumptions": [{"text": "Inbox is authoritative"}],
+    }
+    norm = _normalize_structured(raw)
+    assert norm["permitted_actions"] == ["Submit invoice", "verify"]
+    assert norm["assumptions"] == ["Inbox is authoritative"]

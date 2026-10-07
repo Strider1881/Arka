@@ -97,8 +97,7 @@ def score(
     if expects_approval:
         # Seeded auto_approve still creates APPROVAL_* events in the over-threshold path.
         requested = any(
-            i.decision
-            and i.decision.value in {"needs_approval", "flag_ask_human"}
+            i.decision and i.decision.value in {"needs_approval", "flag_ask_human"}
             for i in result.invoices
         )
         approvals_ok = requested

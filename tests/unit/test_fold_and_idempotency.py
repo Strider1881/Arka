@@ -53,3 +53,18 @@ def test_ledger_exactly_once(tmp_path: Path) -> None:
     ledger.commit(key, result={"invoice_number": "INV-9", "again": True})
     snap = fold_run(store, run_id)
     assert key in snap.irreversible_keys
+
+
+def test_ledger_committed_from_events_alone(tmp_path: Path) -> None:
+    store = EventStore(tmp_path / "e2.db")
+    run_id = store.new_run_id()
+    store.append(run_id, EventType.RUN_STARTED, {"goal": "x"})
+    key = irreversible_key(run_id, "INV-42")
+    store.append(
+        run_id,
+        EventType.STEP_COMPLETED,
+        {"idempotency_key": key, "irreversible": True, "ok": True},
+        step_id="INV-42:submit",
+    )
+    ledger = IrreversibleLedger(store, run_id)
+    assert ledger.is_committed(key)

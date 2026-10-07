@@ -56,3 +56,36 @@ def test_auth_expired_relogin() -> None:
         relogin=relogin,
     )
     assert isinstance(out, ToolResult) and out.ok
+
+
+def test_ambiguous_and_auth_without_helpers() -> None:
+    rec = Recovery(max_transient_retries=1)
+    amb = Failure(kind=FailureKind.AMBIGUOUS, message="ask")
+    assert rec.handle("a", amb) is amb
+    auth = Failure(kind=FailureKind.AUTH_EXPIRED, message="login", retryable=True)
+    assert rec.handle("b", auth) is auth
+    no_retry = rec.handle(
+        "c",
+        Failure(kind=FailureKind.TRANSIENT, message="x", retryable=True),
+        retry=None,
+    )
+    assert isinstance(no_retry, Failure)
+    assert no_retry.kind == FailureKind.TRANSIENT
+
+
+def test_transient_retries_exhausted() -> None:
+    rec = Recovery(max_transient_retries=2)
+
+    def retry() -> ToolResult:
+        return ToolResult(
+            ok=False,
+            failure=Failure(kind=FailureKind.TIMEOUT, message="slow", retryable=True),
+        )
+
+    out = rec.handle(
+        "t",
+        Failure(kind=FailureKind.TIMEOUT, message="slow", retryable=True),
+        retry=retry,
+    )
+    assert isinstance(out, Failure)
+    assert out.kind == FailureKind.TIMEOUT
