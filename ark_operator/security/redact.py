@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
+
+from ark_operator.config import get_settings
 
 _SECRET_KEYS = frozenset(
     {
@@ -20,13 +21,14 @@ _SECRET_KEYS = frozenset(
 
 
 def active_secrets() -> list[str]:
+    settings = get_settings()
     return [
         s
         for s in (
-            os.environ.get("PORTAL_OPERATOR_PASSWORD", ""),
-            os.environ.get("PORTAL_MANAGER_PASSWORD", ""),
-            os.environ.get("ANTHROPIC_API_KEY", ""),
-            os.environ.get("PORTAL_SESSION_SECRET", ""),
+            settings.portal_operator_password,
+            settings.portal_manager_password,
+            settings.anthropic_api_key,
+            settings.portal_session_secret,
         )
         if s
     ]

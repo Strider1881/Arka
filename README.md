@@ -8,9 +8,12 @@ ambiguity requires it.
 
 ## Status
 
-**Phases P0–P10 implemented** for the AcmeCorp invoice scenario (FakeLLM/CI path).
-Real Anthropic path is wired (`AnthropicClient`, default `OPERATOR_MODEL=claude-haiku-5-5`) but gated on `ANTHROPIC_API_KEY`
-(not present in the build environment — not faked as a real-LLM pass).
+**Phases P0–P10 complete** for the AcmeCorp invoice scenario.
+
+- **CI / FakeLLM path:** deterministic understand+plan scripts; `PolicyEngine` decides; full eval suite.
+- **Real Anthropic path:** when `ANTHROPIC_API_KEY` is set (local `.env`), CLI/UI use Haiku
+  (`OPERATOR_MODEL=claude-haiku-5-5` by default) for understand+plan. Invoice **decisions** remain
+  deterministic policy (P4 AC vs `expected_outcomes.json`). Never commit `.env`.
 
 Demo GIF: see local run via `make demo` / UI; embed link TBD after recording.
 
@@ -27,13 +30,14 @@ See [docs/DEMO.md](docs/DEMO.md).
 ```bash
 # Python 3.12+ and uv
 cp .env.example .env
+# Optional: paste ANTHROPIC_API_KEY for real Haiku understand+plan
 make setup
 make portal    # http://127.0.0.1:8765  (operator@acmecorp.test / PORTAL_OPERATOR_PASSWORD)
 make ui        # http://127.0.0.1:8877  Operator HTMX UI
 # or
-make run       # CLI headless with --auto-approve
+make run       # CLI headless with --auto-approve (uses Anthropic if keyed)
 make lint && make test
-make eval      # writes evals/results/summary.md
+make eval      # writes evals/results/summary.md (always FakeLLM)
 make demo      # CLI subset against running portal
 ```
 
@@ -44,7 +48,7 @@ make demo      # CLI subset against running portal
 | `make portal` | AcmeCorp Procure :8765 |
 | `make ui` | Operator UI :8877 |
 | `make run` | CLI pipeline |
-| `make eval` | Scenario runner |
+| `make eval` | Scenario runner (FakeLLM) |
 | `make demo` | Headless demo subset |
 
 ## Eval results
@@ -70,11 +74,12 @@ independent verifier, HTMX+SSE UI. Diagrams: [docs/ARCHITECTURE.md](docs/ARCHITE
 ## Design decisions
 
 See [docs/DECISIONS.md](docs/DECISIONS.md): HTMX+SSE, sqlite3, custom backoff,
-`PORTAL_OPERATOR_PASSWORD`, 12 POs, session_expiry N=5, untrusted-data delimiters.
+`PORTAL_OPERATOR_PASSWORD`, 12 POs, session_expiry N=5, untrusted-data delimiters,
+Haiku default, FakeLLM boundary (structure only).
 
 ## Limitations / next steps
 
-- Real-LLM planning quality not measured here (no API key in CI). FakeLLM + deterministic policy covers AC.
-- Full 12-invoice browser eval is slower; CI uses filtered scenarios + decision unit coverage.
+- Invoice decisions are **PolicyEngine** (deterministic) by design — LLM owns understand/plan structure.
+- Full 12-invoice browser eval is slower; CI uses filtered scenarios + decision coverage.
 - DesktopTool remains STUB.
 - Embeddings / multi-tenant connectors out of scope.

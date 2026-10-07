@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
+from ark_operator.config import get_settings
 from ark_operator.events.replay import fold_working_state, replay_run
 from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
@@ -22,20 +22,23 @@ from ark_operator.runtime.pipeline import InvoicePipeline, PipelineConfig, build
 TEMPLATES_DIR = Path(__file__).resolve().parent / "ui" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-DATA_DIR = Path(os.environ.get("OPERATOR_DATA_DIR", "data/ui"))
-STORE_PATH = DATA_DIR / "operator.db"
+
+def _data_dir() -> Path:
+    return Path(get_settings().operator_data_dir)
 
 
 def get_store() -> EventStore:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    return EventStore(STORE_PATH)
+    data_dir = _data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return EventStore(data_dir / "operator.db")
 
 
 def _pipeline_cfg(*, auto_approve: bool | None = None) -> PipelineConfig:
+    settings = get_settings()
     return PipelineConfig(
-        portal_base_url=os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765"),
-        data_dir=DATA_DIR / "runs",
-        headless=os.environ.get("OPERATOR_HEADLESS", "true").lower() != "false",
+        portal_base_url=settings.portal_base_url,
+        data_dir=_data_dir() / "runs",
+        headless=settings.operator_headless,
         auto_approve=auto_approve,
     )
 

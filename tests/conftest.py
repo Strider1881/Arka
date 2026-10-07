@@ -14,6 +14,16 @@ from company_world.portal.faults import fault_state
 from fastapi.testclient import TestClient
 
 
+@pytest.fixture(autouse=True)
+def _clear_settings_cache() -> Iterator[None]:
+    """Ensure Settings re-read env after monkeypatch (and never leak keys across tests)."""
+    from ark_operator.config import clear_settings_cache
+
+    clear_settings_cache()
+    yield
+    clear_settings_cache()
+
+
 @pytest.fixture
 def portal_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PORTAL_DB_PATH", str(tmp_path / "portal.db"))

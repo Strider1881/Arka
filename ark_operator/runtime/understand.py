@@ -40,10 +40,11 @@ class Understander:
             if isinstance(content, dict):
                 return Interpretation.model_validate(content)
         except Exception as exc:
-            # Labeled deterministic scaffold when FakeLLM script / API unavailable.
+            # STUB only when FakeLLM has no script / prompt file missing.
+            # Real Anthropic errors must surface (never silent fake success).
             from ark_operator.llm.base import PromptNotFoundError
 
-            if not isinstance(exc, (PromptNotFoundError, FileNotFoundError, RuntimeError)):
+            if not isinstance(exc, (PromptNotFoundError, FileNotFoundError)):
                 raise
         # STUB fallback: structured Interpretation without LLM (CI / missing key).
         return Interpretation(

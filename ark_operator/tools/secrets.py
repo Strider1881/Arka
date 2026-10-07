@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+
+from ark_operator.config import get_settings
 
 
 @dataclass(frozen=True)
@@ -13,16 +14,18 @@ class PortalCredentials:
 
 
 def portal_operator_credentials() -> PortalCredentials:
+    settings = get_settings()
     return PortalCredentials(
-        email=os.environ.get("PORTAL_OPERATOR_EMAIL", "operator@acmecorp.test"),
-        password=os.environ.get("PORTAL_OPERATOR_PASSWORD", "change-me"),
+        email=settings.portal_operator_email,
+        password=settings.portal_operator_password,
     )
 
 
 def portal_manager_credentials() -> PortalCredentials:
+    settings = get_settings()
     return PortalCredentials(
-        email=os.environ.get("PORTAL_MANAGER_EMAIL", "priya.nair@acmecorp.test"),
-        password=os.environ.get("PORTAL_MANAGER_PASSWORD", "priya-approve"),
+        email=settings.portal_manager_email,
+        password=settings.portal_manager_password,
     )
 
 

@@ -19,7 +19,10 @@ class Planner:
         try:
             resp = self.llm.complete(
                 "plan_top",
-                {"interpretation": interpretation.model_dump()},
+                {
+                    "interpretation": interpretation.model_dump(),
+                    "lessons": [],
+                },
                 schema=Plan,
             )
             if isinstance(resp.content, Plan):
@@ -29,7 +32,8 @@ class Planner:
         except Exception as exc:
             from ark_operator.llm.base import PromptNotFoundError
 
-            if not isinstance(exc, (PromptNotFoundError, FileNotFoundError, RuntimeError)):
+            # STUB only for missing FakeLLM scripts / prompt files — never swallow API errors.
+            if not isinstance(exc, (PromptNotFoundError, FileNotFoundError)):
                 raise
         # STUB fallback plan when LLM script/API unavailable (CI).
         steps = [

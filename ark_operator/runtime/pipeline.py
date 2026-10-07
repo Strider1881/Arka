@@ -828,7 +828,31 @@ def build_default_fake_llm() -> FakeLLM:
                         tool="files",
                         status=StepStatus.READY,
                         risk_level=RiskLevel.READ,
-                    )
+                    ),
+                    Step(
+                        id="retrieve-knowledge",
+                        description="Retrieve policies",
+                        tool="knowledge_search",
+                        status=StepStatus.PENDING,
+                        risk_level=RiskLevel.READ,
+                        depends_on=["load-invoices"],
+                    ),
+                    Step(
+                        id="process-invoices",
+                        description="Process each invoice",
+                        tool="orchestrator",
+                        status=StepStatus.PENDING,
+                        risk_level=RiskLevel.IRREVERSIBLE,
+                        depends_on=["retrieve-knowledge"],
+                    ),
+                    Step(
+                        id="verify",
+                        description="Independent verification",
+                        tool="verifier",
+                        status=StepStatus.PENDING,
+                        risk_level=RiskLevel.READ,
+                        depends_on=["process-invoices"],
+                    ),
                 ],
             ),
         }

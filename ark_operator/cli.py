@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
+from ark_operator.config import get_settings
 from ark_operator.events.replay import fold_working_state, replay_run
 from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
@@ -15,15 +15,16 @@ from ark_operator.runtime.pipeline import InvoicePipeline, PipelineConfig, build
 
 
 def _store() -> EventStore:
-    path = Path(os.environ.get("OPERATOR_DB_PATH", "data/operator.db"))
-    return EventStore(path)
+    settings = get_settings()
+    return EventStore(Path(settings.operator_db_path))
 
 
 def cmd_run(args: argparse.Namespace) -> int:
+    settings = get_settings()
     store = _store()
     cfg = PipelineConfig(
-        portal_base_url=os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765"),
-        headless=os.environ.get("OPERATOR_HEADLESS", "true").lower() != "false",
+        portal_base_url=settings.portal_base_url,
+        headless=settings.operator_headless,
         auto_approve=True if args.auto_approve else None,
         invoice_filter=args.only.split(",") if args.only else None,
     )
@@ -56,8 +57,9 @@ def cmd_approve(args: argparse.Namespace) -> int:
         {"approval_id": args.approval_id, "decision": decision, "info": info},
     )
     # Only the decided approval is applied; do not blanket-auto-approve the rest.
+    settings = get_settings()
     cfg = PipelineConfig(
-        portal_base_url=os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765"),
+        portal_base_url=settings.portal_base_url,
         auto_approve=None,
     )
     InvoicePipeline(store, build_llm(), cfg).resume(info["run_id"])

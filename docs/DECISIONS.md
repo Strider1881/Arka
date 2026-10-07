@@ -61,7 +61,7 @@ Update when a phase introduces a new default.
 | Duplicate keys on resume | `PolicyEngine.remember_seen()` re-seeds from terminal idempotency cache (INV-1004 still flags) |
 | LLM selection | `build_llm()` → AnthropicClient if `ANTHROPIC_API_KEY` else FakeLLM |
 | Default model | `OPERATOR_MODEL=claude-haiku-5-5` (cost-efficient structured JSON; not Opus/Sonnet) |
-| LLM temperature | `temperature=0` on Anthropic plan/understand structured calls (SPEC) |
+| LLM temperature | Haiku 5.5 rejects `temperature` (API 400); omit it — structured JSON + pydantic enforce shape |
 | Files sandbox | `company_world/` only — never `Path.cwd()` (`.env` exposure) |
 | UI run start | Background thread so Work screen + SSE are live while pipeline runs |
 | COMPLETED outcome | Set only after independent verifier passes (provisional NEEDS_ATTENTION post-submit) |
@@ -72,3 +72,5 @@ Update when a phase introduces a new default.
 | Security center | `security/envelope.py` + `security/redact.py` — EventStore append always redacts |
 | Coverage gate | `make test` enforces ≥88% on policy/fsm/recovery/idempotency/verify/events |
 | FakeLLM boundary | Scripts understand/plan **structure** only; never policy, portal writes, or verify |
+| Settings source | `get_settings()` loads repo-root `.env` + process env; CLI/UI/secrets/redact use it |
+| Real-LLM P4 proof | `tests/integration/test_real_llm_p4.py` (skip without key); evals stay FakeLLM |
