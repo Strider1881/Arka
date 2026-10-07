@@ -1,0 +1,23 @@
+# Design decisions
+
+Record of choices where the SPEC is silent or where we pick among allowed options.
+Update when a phase introduces a new default.
+
+## P0 agreed defaults
+
+| # | Decision | Choice | Notes |
+|---|----------|--------|-------|
+| 1 | UI approach | **HTMX + SSE** (not a SPA) | SPEC §3/§4 allows HTMX or minimal vanilla JS; SSE for live progress. |
+| 2 | SQLite access | **stdlib `sqlite3` first** | SPEC allows sqlite3 or SQLAlchemy Core; defer SQLAlchemy unless needed. |
+| 3 | Retries / backoff | **Custom tiny backoff** | SPEC allows tenacity or custom; revisit if tenacity is clearly needed. |
+| 4 | Portal password env | **`PORTAL_OPERATOR_PASSWORD`** | Seeded portal login uses operator@acmecorp.test + this env var. |
+| 5 | Repo SPEC filename | **`docs/SPEC.md`** (uppercase) | Matches layout in SPEC §5. |
+| 6 | Purchase orders | **12 POs: PO-501…PO-512** | Seed summary says “10 POs”; invoice table maps one PO each through PO-512 — use 12. |
+| 7 | Session-expiry fault | **default N=5** | `session_expiry` invalidates after N requests; env `SESSION_EXPIRY_N` (default 5). |
+
+## Layout / tooling notes (P0)
+
+- **Package directory renamed `operator/` → `ark_operator/`.** SPEC §5 asks for `operator/`, but that name shadows the Python stdlib `operator` module. Putting it on `sys.path` breaks the interpreter (`collections` imports `operator.eq`). CLI entry point remains `operator` via `[project.scripts]`. Same internal module tree as SPEC otherwise.
+- Mypy strict applies to `ark_operator/` (SPEC: strict on `operator/`).
+- `make portal` / `run` / `eval` / `demo` print STUB messages until later phases.
+- `uv.lock` is committed for reproducible installs.
