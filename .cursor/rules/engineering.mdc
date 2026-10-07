@@ -1,0 +1,19 @@
+---
+description: Operator engineering standards (SPEC §§13–14)
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# Operator engineering rules
+
+- Single source of truth: `docs/SPEC.md`. Silent choices go in `docs/DECISIONS.md`.
+- Phase-gated: stop after each phase; do not start the next without explicit go.
+- Label intentional stubs `STUB` in code and README. Never fake behavior silently.
+- Python 3.12, typed everywhere; **mypy strict** for `ark_operator/` (SPEC package `operator/` renamed — see docs/DECISIONS.md).
+- Small modules; dependency-inject LLM, tools, clock, and store.
+- No silent exception swallowing; structured errors only. Timeouts on all I/O.
+- Idempotency keys for all writes. Deterministic seeds in tests. No secrets in repo.
+- Conventional commits; one logical change per commit.
+- Prefer working, tested, simple code over clever abstractions.
+- Ask before changing architecture, stack, or scope.

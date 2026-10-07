@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+
+# Tooling
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Env / secrets
+.env
+.env.local
+
+# Runtime data
+data/
+*.db
+*.sqlite3
+
+# Playwright
+test-results/
+playwright-report/
+
+# Eval artifacts (keep summary)
+evals/results/*
+!evals/results/summary.md
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Generated invoices (P1 will commit or regenerate — ignore local scratch)
+company_world/inbox/*.pdf
