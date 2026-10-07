@@ -5,6 +5,23 @@
 <p class="lead">Run <code>{{ run_id }}</code> · state <strong>{{ working.state }}</strong></p>
 <p class="status">{{ working.goal }}</p>
 
+{% if interpretation %}
+<section class="card" id="understand">
+  <h2>What I understand</h2>
+  <p>{{ interpretation.intended_outcome }}</p>
+  {% if interpretation.assumptions %}
+  <p class="status">Assumptions: {{ interpretation.assumptions | join('; ') }}</p>
+  {% endif %}
+  {% if interpretation.applicable_policies %}
+  <p class="status">Policies:
+    {% for p in interpretation.applicable_policies %}
+      {{ p.file }}{% if p.section %} §{{ p.section }}{% endif %}{% if not loop.last %}; {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if approvals %}
 {% for a in approvals %}
 <div class="card" id="approval-{{ a.id }}">
@@ -19,7 +36,9 @@
 {% endfor %}
 {% else %}
 <div class="card">
-  <p class="status">No pending approvals. <a href="/runs/{{ run_id }}">Refresh</a> or open proof when complete.</p>
+  <p class="status">Working… live updates via SSE.
+    <a href="/runs/{{ run_id }}">Refresh</a>
+  </p>
 </div>
 {% endif %}
 
@@ -28,7 +47,9 @@
   const es = new EventSource("/runs/{{ run_id }}/events");
   es.onmessage = (ev) => {
     const data = JSON.parse(ev.data);
-    if (data.type === "DONE") location.reload();
+    if (data.type === "DONE" || data.type === "INTERPRETATION_CREATED" || data.type === "APPROVAL_REQUESTED") {
+      location.reload();
+    }
   };
 </script>
 {% endblock %}

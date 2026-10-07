@@ -26,8 +26,12 @@ class Planner:
                 return resp.content
             if isinstance(resp.content, dict):
                 return Plan.model_validate(resp.content)
-        except Exception:
-            pass
+        except Exception as exc:
+            from ark_operator.llm.base import PromptNotFoundError
+
+            if not isinstance(exc, (PromptNotFoundError, FileNotFoundError, RuntimeError)):
+                raise
+        # STUB fallback plan when LLM script/API unavailable (CI).
         steps = [
             Step(
                 id="load-invoices",

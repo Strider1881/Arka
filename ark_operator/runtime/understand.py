@@ -40,9 +40,13 @@ class Understander:
                 return content
             if isinstance(content, dict):
                 return Interpretation.model_validate(content)
-        except Exception:
-            # Deterministic fallback when prompt/script missing
-            pass
+        except Exception as exc:
+            # Labeled deterministic scaffold when FakeLLM script / API unavailable.
+            from ark_operator.llm.base import PromptNotFoundError
+
+            if not isinstance(exc, (PromptNotFoundError, FileNotFoundError, RuntimeError)):
+                raise
+        # STUB fallback: structured Interpretation without LLM (CI / missing key).
         return Interpretation(
             intended_outcome="Process this month's pending vendor invoices end-to-end.",
             assumptions=[

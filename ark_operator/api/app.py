@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,8 @@ from fastapi.templating import Jinja2Templates
 from ark_operator.events.replay import fold_working_state, replay_run
 from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
-from ark_operator.runtime.pipeline import InvoicePipeline, PipelineConfig, build_default_fake_llm
+from ark_operator.runtime.orchestrator import Orchestrator
+from ark_operator.runtime.pipeline import InvoicePipeline, PipelineConfig, build_llm
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "ui" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -27,6 +29,15 @@ STORE_PATH = DATA_DIR / "operator.db"
 def get_store() -> EventStore:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     return EventStore(STORE_PATH)
+
+
+def _pipeline_cfg(*, auto_approve: bool | None = None) -> PipelineConfig:
+    return PipelineConfig(
+        portal_base_url=os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765"),
+        data_dir=DATA_DIR / "runs",
+        headless=os.environ.get("OPERATOR_HEADLESS", "true").lower() != "false",
+        auto_approve=auto_approve,
+    )
 
 
 def create_operator_app() -> FastAPI:
@@ -49,15 +60,17 @@ def create_operator_app() -> FastAPI:
 
     @app.post("/runs")
     def start_run(goal: str = Form(...)) -> RedirectResponse:
+        """Start work in a background thread so Screen 2 + SSE are live (SPEC §3)."""
         store = get_store()
-        cfg = PipelineConfig(
-            portal_base_url=os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765"),
-            data_dir=DATA_DIR / "runs",
-            headless=os.environ.get("OPERATOR_HEADLESS", "true").lower() != "false",
-            auto_approve=None,
-        )
-        result = InvoicePipeline(store, build_default_fake_llm(), cfg).run(goal)
-        return RedirectResponse(f"/runs/{result.run_id}", status_code=303)
+        run_id = Orchestrator(store).start(goal)
+
+        def _bg() -> None:
+            InvoicePipeline(store, build_llm(), _pipeline_cfg(auto_approve=None)).run(
+                goal, run_id=run_id
+            )
+
+        threading.Thread(target=_bg, daemon=True, name=f"run-{run_id[:8]}").start()
+        return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
     def run_view(request: Request, run_id: str) -> HTMLResponse:
@@ -65,9 +78,13 @@ def create_operator_app() -> FastAPI:
         working = fold_working_state(store, run_id)
         events = store.list_for_run(run_id)
         report = None
+        interpretation = None
         for ev in reversed(events):
-            if ev.type == EventType.REPORT_CREATED:
+            if report is None and ev.type == EventType.REPORT_CREATED:
                 report = ev.payload
+            if interpretation is None and ev.type == EventType.INTERPRETATION_CREATED:
+                interpretation = ev.payload
+            if report and interpretation:
                 break
         approvals = store.pending_approvals(run_id)
         template = (
@@ -83,6 +100,7 @@ def create_operator_app() -> FastAPI:
                 "run_id": run_id,
                 "working": working,
                 "report": report,
+                "interpretation": interpretation,
                 "approvals": approvals,
                 "timeline": replay_run(store, run_id)[-30:],
             },
@@ -97,15 +115,11 @@ def create_operator_app() -> FastAPI:
             EventType.APPROVAL_DECIDED,
             {"approval_id": approval_id, "decision": decision, "info": info},
         )
-        # Resume with auto_approve=None so only *this* decided approval is applied;
-        # other invoices that need clearance still pause (P6).
-        cfg = PipelineConfig(
-            portal_base_url=os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765"),
-            data_dir=DATA_DIR / "runs",
-            headless=True,
-            auto_approve=None,
-        )
-        InvoicePipeline(store, build_default_fake_llm(), cfg).resume(run_id)
+
+        def _bg() -> None:
+            InvoicePipeline(store, build_llm(), _pipeline_cfg(auto_approve=None)).resume(run_id)
+
+        threading.Thread(target=_bg, daemon=True, name=f"resume-{run_id[:8]}").start()
         return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
     @app.get("/runs/{run_id}/details", response_class=HTMLResponse)
@@ -123,7 +137,7 @@ def create_operator_app() -> FastAPI:
 
         async def gen() -> Any:
             last = 0
-            for _ in range(120):
+            for _ in range(600):
                 events = store.list_for_run(run_id)
                 if len(events) > last:
                     for ev in events[last:]:
@@ -136,10 +150,14 @@ def create_operator_app() -> FastAPI:
                         )
                     last = len(events)
                 working = fold_working_state(store, run_id)
-                if working.state in {"COMPLETE", "FAILED", "ESCALATED"}:
+                if working.state in {"COMPLETE", "FAILED", "ESCALATED", "AWAIT_APPROVAL"}:
                     yield ("data: " + json.dumps({"type": "DONE", "state": working.state}) + "\n\n")
+                    if working.state != "AWAIT_APPROVAL":
+                        break
+                    # Stay subscribed briefly so the approval card can refresh.
+                    await asyncio.sleep(0.2)
                     break
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.4)
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 

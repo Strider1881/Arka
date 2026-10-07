@@ -58,3 +58,8 @@ Update when a phase introduces a new default.
 | Verifier independence | Fresh `PortalApiTool` session per verify/repair cycle (separate from executor browser context) |
 | Prompts | Versioned `.md` under `ark_operator/llm/prompts/`; FakeLLM scripts remain CI path |
 | Crash-resume eval | Scenario 12 sets `crash_after_invoices` then resumes from the same event store |
+| Duplicate keys on resume | `PolicyEngine.remember_seen()` re-seeds from terminal idempotency cache (INV-1004 still flags) |
+| LLM selection | `build_llm()` → AnthropicClient if `ANTHROPIC_API_KEY` else FakeLLM |
+| Files sandbox | `company_world/` only — never `Path.cwd()` (`.env` exposure) |
+| UI run start | Background thread so Work screen + SSE are live while pipeline runs |
+| COMPLETED outcome | Set only after independent verifier passes (provisional NEEDS_ATTENTION post-submit) |

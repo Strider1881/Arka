@@ -119,7 +119,8 @@ class InvoicePipeline:
             password=creds.password,
         )
         self.registry = ToolRegistry()
-        self.registry.register(FilesTool([Path("company_world").resolve(), Path.cwd()]))
+        # Sandbox: company_world only (never Path.cwd() — would expose .env).
+        self.registry.register(FilesTool([Path("company_world").resolve()]))
         self.registry.register(PdfExtractTool())
         self.registry.register(KnowledgeSearchTool(self.knowledge))
         self.registry.register(self._portal_api)
@@ -245,6 +246,10 @@ class InvoicePipeline:
                     inv.outcome = InvoiceOutcome(str(cached["outcome"]))
                 if cached.get("reason"):
                     inv.decision_reason = str(cached["reason"])
+                if cached.get("canonical_vendor"):
+                    inv.canonical_vendor = str(cached["canonical_vendor"])
+                # Critical: re-seed duplicate keys so INV-1004 still flags after resume.
+                self.policy.remember_seen(inv)
                 self.store.append(
                     run_id,
                     EventType.IDEMPOTENCY_SKIP,
@@ -257,6 +262,7 @@ class InvoicePipeline:
             inv.decision = decided.decision
             inv.decision_reason = decided.decision_reason
             inv.canonical_vendor = decided.canonical_vendor
+            self.policy.remember_seen(inv)
 
             if inv.security_finding:
                 self.store.append(
@@ -295,6 +301,7 @@ class InvoicePipeline:
                     "decision": inv.decision.value if inv.decision else None,
                     "outcome": outcome.value,
                     "reason": inv.decision_reason,
+                    "canonical_vendor": inv.canonical_vendor,
                 },
                 step_id=step_id,
             )
@@ -366,17 +373,20 @@ class InvoicePipeline:
                 verification.model_dump(mode="json"),
             )
 
-        # Mark outcomes from verification
+        # Mark outcomes from verification — agent never self-grades COMPLETED (SPEC §7).
         for inv in invoices:
             if inv.outcome in {InvoiceOutcome.FLAGGED, InvoiceOutcome.REFUSED}:
                 continue
-            if inv.decision in {InvoiceDecision.SUBMIT, InvoiceDecision.NEEDS_APPROVAL}:
-                # find related criteria
-                ok = verification.passed
-                if not ok:
+            if inv.decision == InvoiceDecision.SUBMIT:
+                inv.outcome = (
+                    InvoiceOutcome.COMPLETED
+                    if verification.passed
+                    else InvoiceOutcome.NEEDS_ATTENTION
+                )
+            elif inv.decision == InvoiceDecision.NEEDS_APPROVAL:
+                # Portal PENDING_APPROVAL is success for the operator step; not "completed payable".
+                if not verification.passed:
                     inv.outcome = InvoiceOutcome.NEEDS_ATTENTION
-                elif inv.outcome is None:
-                    inv.outcome = InvoiceOutcome.COMPLETED
 
         # REPORT
         self._state(run_id, RunState.REPORT)
@@ -672,13 +682,10 @@ class InvoicePipeline:
             },
         )
         # Persist success only — irreversible writes must not skip after a failed attempt.
+        # Outcome stays provisional until the independent verifier upgrades SUBMIT → COMPLETED.
         if res.ok:
             self.store.remember_idempotent(key, run_id, {"ok": True, "terminal": True})
-            return (
-                InvoiceOutcome.COMPLETED
-                if inv.decision == InvoiceDecision.SUBMIT
-                else InvoiceOutcome.NEEDS_ATTENTION  # pending approval in portal
-            )
+            return InvoiceOutcome.NEEDS_ATTENTION
         return InvoiceOutcome.NEEDS_ATTENTION
 
     def _apply_approval(self, run_id: str, approval_id: str, decision: str) -> None:
@@ -780,3 +787,14 @@ def build_default_fake_llm() -> FakeLLM:
             ),
         }
     )
+
+
+def build_llm() -> LLMClient:
+    """Prefer Anthropic when ANTHROPIC_API_KEY is set; otherwise FakeLLM (CI)."""
+    import os
+
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        from ark_operator.llm.anthropic_client import AnthropicClient
+
+        return AnthropicClient()
+    return build_default_fake_llm()

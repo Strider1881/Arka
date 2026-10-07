@@ -11,7 +11,7 @@ from pathlib import Path
 from ark_operator.events.replay import fold_working_state, replay_run
 from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
-from ark_operator.runtime.pipeline import InvoicePipeline, PipelineConfig, build_default_fake_llm
+from ark_operator.runtime.pipeline import InvoicePipeline, PipelineConfig, build_llm
 
 
 def _store() -> EventStore:
@@ -27,7 +27,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         auto_approve=True if args.auto_approve else None,
         invoice_filter=args.only.split(",") if args.only else None,
     )
-    pipe = InvoicePipeline(store, build_default_fake_llm(), cfg)
+    pipe = InvoicePipeline(store, build_llm(), cfg)
     result = pipe.run(args.request)
     print(
         json.dumps(
@@ -60,7 +60,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
         portal_base_url=os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765"),
         auto_approve=None,
     )
-    InvoicePipeline(store, build_default_fake_llm(), cfg).resume(info["run_id"])
+    InvoicePipeline(store, build_llm(), cfg).resume(info["run_id"])
     print(json.dumps({"resumed": info["run_id"], "decision": info["status"]}))
     return 0
 

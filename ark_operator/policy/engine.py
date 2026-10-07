@@ -49,11 +49,18 @@ class PolicyEngine:
             risk = mapped
         mapping = self.rules.get("risk_to_decision") or {}
         raw = mapping.get(risk.value, "ALLOW")
-        # Irreversible portal writes require clearance checks at invoice level;
-        # tool-level default ALLOW for browser when invoice already cleared.
-        if risk == RiskLevel.IRREVERSIBLE:
-            return PolicyDecision.ALLOW, "irreversible_requires_invoice_clearance"
-        return PolicyDecision(str(raw)), f"risk:{risk.value}"
+        # Honor rules.yaml (IRREVERSIBLE → REQUIRE_APPROVAL). Invoice-level
+        # clearance_for_submit() is the second gate used by the pipeline.
+        return PolicyDecision(str(raw)), f"risk:{risk.value}|tool:{tool_name}"
+
+    def remember_seen(self, invoice: InvoiceRecord) -> None:
+        """Re-seed duplicate detection after resume / idempotency skip."""
+        canonical = invoice.canonical_vendor or self.canonicalize_vendor(invoice.vendor)
+        if invoice.decision in {
+            InvoiceDecision.SUBMIT,
+            InvoiceDecision.NEEDS_APPROVAL,
+        }:
+            self.seen_keys.add(f"{canonical}|{invoice.invoice_number}")
 
     def decide_invoice(self, invoice: InvoiceRecord) -> InvoiceRecord:
         """Apply company policy to produce InvoiceDecision (deterministic)."""
