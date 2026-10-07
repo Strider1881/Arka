@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ po.po_number }} — AcmeCorp Procure{% endblock %}
+{% block content %}
+<h1 id="po-number">{{ po.po_number }}</h1>
+<p class="muted">{{ po.description }}</p>
+<table>
+  <tr><th>Vendor</th><td>{{ po.vendor_name }} <span class="status {{ po.vendor_status }}">{{ po.vendor_status }}</span></td></tr>
+  <tr><th>Amount</th><td id="po-amount">${{ '%.2f'|format(po.amount) }}</td></tr>
+  <tr><th>Status</th><td><span class="status {{ po.status }}">{{ po.status }}</span></td></tr>
+</table>
+<p><a href="/pos">← All POs</a></p>
+{% endblock %}

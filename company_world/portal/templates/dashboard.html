@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — AcmeCorp Procure{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<p class="muted">Procurement overview for the signed-in operator.</p>
+<div class="grid">
+  <div class="stat"><strong>{{ vendor_count }}</strong> Vendors</div>
+  <div class="stat"><strong>{{ po_count }}</strong> Purchase orders</div>
+  <div class="stat"><strong>{{ pending_approvals }}</strong> Pending approvals</div>
+  {% for status, count in counts.items() %}
+  <div class="stat"><strong>{{ count }}</strong> {{ status }}</div>
+  {% endfor %}
+</div>
+<p style="margin-top:1.5rem;">
+  <a class="btn" href="/invoices/submit">Submit invoice</a>
+  <a class="btn secondary" href="/approvals">Open approval queue</a>
+</p>
+{% endblock %}

@@ -1,4 +1,5 @@
-"""AcmeCorp Procure portal (FastAPI + Jinja2 + SQLite).
+"""AcmeCorp Procure portal (FastAPI + Jinja2 + SQLite)."""
 
-STUB: implemented in P1.
-"""
+from company_world.portal.app import create_app
+
+__all__ = ["create_app"]

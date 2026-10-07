@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Approvals — AcmeCorp Procure{% endblock %}
+{% block content %}
+<h1>Approval queue</h1>
+<p class="muted">Invoices over $5,000 require manager approval (Priya Nair).</p>
+<table id="approvals-table">
+  <thead>
+    <tr><th>Invoice</th><th>Vendor</th><th>Amount</th><th>Requested by</th><th>Status</th><th>Action</th></tr>
+  </thead>
+  <tbody>
+    {% for a in approvals %}
+    <tr>
+      <td><a href="/invoices/{{ a.invoice_id }}">{{ a.invoice_number }}</a></td>
+      <td>{{ a.vendor_name }}</td>
+      <td>${{ '%.2f'|format(a.amount) }}</td>
+      <td>{{ a.requested_by }}</td>
+      <td><span class="status {{ a.status }}">{{ a.status }}</span></td>
+      <td>
+        {% if a.status == 'PENDING' %}
+        <form method="post" action="/approvals/{{ a.id }}/decide" style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">
+          <input type="hidden" name="notes" value="">
+          <button type="submit" name="decision" value="APPROVED" id="approve-{{ a.id }}">Approve</button>
+          <button type="submit" name="decision" value="REJECTED" class="secondary" id="reject-{{ a.id }}">Reject</button>
+        </form>
+        {% else %}
+        {{ a.decided_by or '—' }}
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">No approval items.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

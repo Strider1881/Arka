@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Submit invoice — AcmeCorp Procure{% endblock %}
+{% block content %}
+<h1>Submit invoice</h1>
+{% if banner %}
+<div class="banner {{ banner.kind }}" id="submit-banner">{{ banner.text }}</div>
+{% endif %}
+<form class="stack" method="post" action="/invoices/submit" id="submit-invoice-form">
+  <label for="vendor_id">{{ ui.vendor }}</label>
+  <select id="vendor_id" name="vendor_id" required>
+    <option value="">Select…</option>
+    {% for v in vendors %}
+    <option value="{{ v.id }}">{{ v.name }} ({{ v.status }})</option>
+    {% endfor %}
+  </select>
+
+  <label for="invoice_number">{{ ui.invoice_number }}</label>
+  <input id="invoice_number" name="invoice_number" required>
+
+  <label for="po_id">{{ ui.po }}</label>
+  <select id="po_id" name="po_id">
+    <option value="">None</option>
+    {% for po in pos %}
+    <option value="{{ po.id }}">{{ po.po_number }} — {{ po.vendor_name }} (${{ '%.2f'|format(po.amount) }})</option>
+    {% endfor %}
+  </select>
+
+  <label for="amount">{{ ui.amount }}</label>
+  <input id="amount" name="amount" type="number" step="0.01" min="0" required>
+
+  <label for="invoice_date">{{ ui.date }}</label>
+  <input id="invoice_date" name="invoice_date" type="date" value="{{ today }}" required>
+
+  <label for="attachment_name">{{ ui.attachment }}</label>
+  <input id="attachment_name" name="attachment_name" placeholder="INV-1001.pdf">
+
+  <button type="submit" id="submit-invoice-button">{{ ui.submit_button }}</button>
+</form>
+{% endblock %}

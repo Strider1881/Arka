@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Vendors — AcmeCorp Procure{% endblock %}
+{% block content %}
+<h1>Vendors</h1>
+<table id="vendors-table">
+  <thead>
+    <tr><th>Name</th><th>Status</th><th>Aliases</th></tr>
+  </thead>
+  <tbody>
+    {% for v in vendors %}
+    <tr>
+      <td>{{ v.name }}</td>
+      <td><span class="status {{ v.status }}">{{ v.status }}</span></td>
+      <td>{% if v.aliases %}{{ v.aliases | join(', ') }}{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

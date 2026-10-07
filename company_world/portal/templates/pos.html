@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Purchase orders — AcmeCorp Procure{% endblock %}
+{% block content %}
+<h1>Purchase orders</h1>
+<table id="pos-table">
+  <thead>
+    <tr><th>PO</th><th>Vendor</th><th>Amount</th><th>Status</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    {% for po in pos %}
+    <tr>
+      <td><a href="/pos/{{ po.po_number }}">{{ po.po_number }}</a></td>
+      <td>{{ po.vendor_name }}</td>
+      <td>${{ '%.2f'|format(po.amount) }}</td>
+      <td><span class="status {{ po.status }}">{{ po.status }}</span></td>
+      <td>{{ po.description }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

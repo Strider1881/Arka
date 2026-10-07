@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ invoice.invoice_number }} — AcmeCorp Procure{% endblock %}
+{% block content %}
+<h1 id="invoice-number">{{ invoice.invoice_number }}</h1>
+<table>
+  <tr><th>Vendor</th><td>{{ invoice.vendor_name }} <span class="status {{ invoice.vendor_status }}">{{ invoice.vendor_status }}</span></td></tr>
+  <tr><th>PO</th><td>{{ invoice.po_number or '—' }}{% if invoice.po_amount %} (${{ '%.2f'|format(invoice.po_amount) }}){% endif %}</td></tr>
+  <tr><th>Amount</th><td id="invoice-amount">${{ '%.2f'|format(invoice.amount) }}</td></tr>
+  <tr><th>Date</th><td>{{ invoice.invoice_date }}</td></tr>
+  <tr><th>Attachment</th><td>{{ invoice.attachment_name or '—' }}</td></tr>
+  <tr><th>Status</th><td><span class="status {{ invoice.status }}" id="invoice-status">{{ invoice.status }}</span></td></tr>
+</table>
+{% if approval %}
+<h2>Approval</h2>
+<p>Queue status: <span class="status {{ approval.status }}">{{ approval.status }}</span>
+  — requested by {{ approval.requested_by }}
+  {% if approval.decided_by %} — decided by {{ approval.decided_by }}{% endif %}
+</p>
+{% endif %}
+<p><a href="/invoices">← All invoices</a></p>
+{% endblock %}

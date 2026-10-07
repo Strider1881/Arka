@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Invoices — AcmeCorp Procure{% endblock %}
+{% block content %}
+<h1>Invoices</h1>
+<p><a class="btn" href="/invoices/submit">Submit invoice</a></p>
+<table id="invoices-table">
+  <thead>
+    <tr><th>Invoice</th><th>Vendor</th><th>PO</th><th>Amount</th><th>Date</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+    {% for inv in invoices %}
+    <tr>
+      <td><a href="/invoices/{{ inv.id }}">{{ inv.invoice_number }}</a></td>
+      <td>{{ inv.vendor_name }}</td>
+      <td>{{ inv.po_number or '—' }}</td>
+      <td>${{ '%.2f'|format(inv.amount) }}</td>
+      <td>{{ inv.invoice_date }}</td>
+      <td><span class="status {{ inv.status }}">{{ inv.status }}</span></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">No invoices submitted yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
