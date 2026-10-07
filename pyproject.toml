@@ -35,8 +35,35 @@ packages = ["ark_operator"]
 dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
     "ruff>=0.7.0",
     "mypy>=1.13.0",
+]
+
+[tool.coverage.run]
+branch = true
+# Measured set is controlled by `make test` --cov flags (core runtime modules).
+omit = [
+    "*/ark_operator/api/*",
+    "*/ark_operator/cli.py",
+    "*/ark_operator/llm/anthropic_client.py",
+    "*/ark_operator/runtime/pipeline.py",
+    "*/ark_operator/runtime/executor.py",
+    "*/ark_operator/runtime/planner.py",
+    "*/ark_operator/runtime/understand.py",
+    "*/ark_operator/runtime/orchestrator.py",
+    "*/ark_operator/tools/*",
+    "*/ark_operator/memory/*",
+    "*/ark_operator/logging.py",
+    "*/ark_operator/config.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
 ]
 
 [tool.ruff]

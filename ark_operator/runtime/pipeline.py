@@ -25,6 +25,7 @@ from ark_operator.domain.models import (
     Step,
     VerificationResult,
 )
+from ark_operator.events.replay import fold_run
 from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
 from ark_operator.llm.base import LLMClient
@@ -33,6 +34,8 @@ from ark_operator.memory.episodic import EpisodicMemory
 from ark_operator.memory.knowledge import KnowledgeStore
 from ark_operator.policy.engine import PolicyEngine
 from ark_operator.runtime.budgets import Budgets
+from ark_operator.runtime.fsm import StateMachine
+from ark_operator.runtime.idempotency import IrreversibleLedger, irreversible_key
 from ark_operator.runtime.orchestrator import Orchestrator
 from ark_operator.runtime.planner import Planner
 from ark_operator.runtime.recovery import Recovery
@@ -161,64 +164,96 @@ class InvoicePipeline:
 
     def _execute(self, run_id: str, request: str, *, resume: bool = False) -> PipelineResult:
         result = PipelineResult(run_id=run_id, state=RunState.INTAKE, report=None)
+        snapshot = fold_run(self.store, run_id)
+        fsm = StateMachine.from_fold(self.store, run_id, snapshot.state)
+        ledger = IrreversibleLedger(self.store, run_id)
+        # Rebuild duplicate detection purely from folded events.
+        self.policy.seen_keys |= set(snapshot.seen_duplicate_keys)
 
         def is_terminal(key: str) -> bool:
             cached = self.store.get_idempotent(key)
             return bool(cached and cached.get("terminal"))
 
-        # INTAKE -> UNDERSTAND
-        self._state(run_id, RunState.UNDERSTAND)
-        if not self.knowledge.search("invoice", top_k=1):
-            self.knowledge.ingest(self.config.knowledge_dir)
-        hits = self.knowledge.search("invoice approval tolerance vendor duplicate security")
-        lessons = self.episodic.retrieve("portal_ui", top_k=5)
-        self.store.append(
-            run_id,
-            EventType.KNOWLEDGE_RETRIEVED,
-            {
-                "hits": [
-                    {"file": h.get("file"), "heading": h.get("heading"), "score": h.get("score")}
-                    for h in hits
-                ],
-                "lessons": lessons,
-            },
-        )
-        interpretation = self.understander.interpret(request, knowledge_snippets=hits)
-        self.store.append(
-            run_id,
-            EventType.INTERPRETATION_CREATED,
-            interpretation.model_dump(mode="json"),
-        )
+        def go(next_state: RunState) -> None:
+            fsm.transition(next_state)
+            result.state = fsm.state
 
-        # PLAN
-        self._state(run_id, RunState.PLAN)
-        plan = self.planner.create_plan(interpretation)
-        if lessons:
-            plan = self.planner.revise(
-                plan,
-                "episodic lessons",
-                [
-                    {
-                        "step_id": "process-invoices",
-                        "description": "Use stable element ids; lessons applied",
-                    }
-                ],
-            )
+        # Advance toward EXECUTE via legal transitions only.
+        if fsm.state == RunState.INTAKE:
+            go(RunState.UNDERSTAND)
+        if fsm.state == RunState.UNDERSTAND:
+            if not self.knowledge.search("invoice", top_k=1):
+                self.knowledge.ingest(self.config.knowledge_dir)
+            hits = self.knowledge.search("invoice approval tolerance vendor duplicate security")
+            lessons = self.episodic.retrieve("portal_ui", top_k=5)
             self.store.append(
                 run_id,
-                EventType.PLAN_REVISED,
+                EventType.KNOWLEDGE_RETRIEVED,
                 {
-                    "plan_id": plan.id,
-                    "revision": plan.revision,
-                    "steps": [s.model_dump(mode="json") for s in plan.steps],
+                    "hits": [
+                        {
+                            "file": h.get("file"),
+                            "heading": h.get("heading"),
+                            "score": h.get("score"),
+                        }
+                        for h in hits
+                    ],
+                    "lessons": lessons,
                 },
             )
-        else:
+            interpretation = self.understander.interpret(request, knowledge_snippets=hits)
             self.store.append(
                 run_id,
-                EventType.PLAN_CREATED,
-                {"plan_id": plan.id, "steps": [s.model_dump(mode="json") for s in plan.steps]},
+                EventType.INTERPRETATION_CREATED,
+                interpretation.model_dump(mode="json"),
             )
+            go(RunState.PLAN)
+        else:
+            hits = self.knowledge.search("invoice approval tolerance vendor duplicate security")
+            if not hits:
+                self.knowledge.ingest(self.config.knowledge_dir)
+                hits = self.knowledge.search("invoice approval tolerance vendor duplicate security")
+            lessons = self.episodic.retrieve("portal_ui", top_k=5)
+            interpretation = self.understander.interpret(request, knowledge_snippets=hits)
+
+        # PLAN
+        if fsm.state == RunState.PLAN:
+            plan = self.planner.create_plan(interpretation)
+            if lessons:
+                plan = self.planner.revise(
+                    plan,
+                    "episodic lessons",
+                    [
+                        {
+                            "step_id": "process-invoices",
+                            "description": "Use stable element ids; lessons applied",
+                        }
+                    ],
+                )
+                self.store.append(
+                    run_id,
+                    EventType.PLAN_REVISED,
+                    {
+                        "plan_id": plan.id,
+                        "revision": plan.revision,
+                        "steps": [s.model_dump(mode="json") for s in plan.steps],
+                    },
+                )
+            else:
+                self.store.append(
+                    run_id,
+                    EventType.PLAN_CREATED,
+                    {
+                        "plan_id": plan.id,
+                        "steps": [s.model_dump(mode="json") for s in plan.steps],
+                    },
+                )
+            go(RunState.EXECUTE)
+        elif fsm.state == RunState.AWAIT_APPROVAL:
+            go(RunState.EXECUTE)
+        elif fsm.state != RunState.EXECUTE:
+            # Mid-VERIFY/REPAIR resume: continue from VERIFY below
+            pass
 
         # Load portal master data for policy
         assert self._portal_api is not None
@@ -226,146 +261,124 @@ class InvoicePipeline:
         pos = self._portal_api.run({"action": "pos"}).data.get("result") or []
         self.policy.load_portal_master(list(vendors), list(pos))
 
-        # EXECUTE: extract + decide + act per invoice
-        self._state(run_id, RunState.EXECUTE)
-        invoices = self._load_invoices(run_id)
-        result.invoices = invoices
+        # EXECUTE
+        if fsm.state == RunState.EXECUTE:
+            invoices = self._load_invoices(run_id)
+            result.invoices = invoices
+            pending_approvals: list[str] = []
+            processed = 0
+            for inv in invoices:
+                result.steps += 1
+                self.budgets.record_step()
+                file_id = Path(inv.attachment_name or inv.invoice_number).stem
+                inv_key = f"{run_id}:{file_id}:process"
+                if is_terminal(inv_key):
+                    cached = self.store.get_idempotent(inv_key) or {}
+                    if cached.get("decision"):
+                        inv.decision = InvoiceDecision(str(cached["decision"]))
+                    if cached.get("outcome"):
+                        inv.outcome = InvoiceOutcome(str(cached["outcome"]))
+                    if cached.get("reason"):
+                        inv.decision_reason = str(cached["reason"])
+                    if cached.get("canonical_vendor"):
+                        inv.canonical_vendor = str(cached["canonical_vendor"])
+                    self.policy.remember_seen(inv)
+                    self.store.append(
+                        run_id,
+                        EventType.IDEMPOTENCY_SKIP,
+                        {"idempotency_key": inv_key, "irreversible": False},
+                    )
+                    processed += 1
+                    continue
 
-        pending_approvals: list[str] = []
-        processed = 0
-        for inv in invoices:
-            result.steps += 1
-            self.budgets.record_step()
-            file_id = Path(inv.attachment_name or inv.invoice_number).stem
-            inv_key = f"{run_id}:{file_id}:process"
-            if is_terminal(inv_key):
-                cached = self.store.get_idempotent(inv_key) or {}
-                if cached.get("decision"):
-                    inv.decision = InvoiceDecision(str(cached["decision"]))
-                if cached.get("outcome"):
-                    inv.outcome = InvoiceOutcome(str(cached["outcome"]))
-                if cached.get("reason"):
-                    inv.decision_reason = str(cached["reason"])
-                if cached.get("canonical_vendor"):
-                    inv.canonical_vendor = str(cached["canonical_vendor"])
-                # Critical: re-seed duplicate keys so INV-1004 still flags after resume.
+                decided = self.policy.decide_invoice(inv)
+                inv.decision = decided.decision
+                inv.decision_reason = decided.decision_reason
+                inv.canonical_vendor = decided.canonical_vendor
                 self.policy.remember_seen(inv)
+
+                if inv.security_finding:
+                    self.store.append(
+                        run_id,
+                        EventType.SECURITY_FINDING,
+                        {
+                            "invoice_number": inv.invoice_number,
+                            "file_id": file_id,
+                            "pattern": "ignore previous instructions",
+                        },
+                    )
+
+                step_id = f"{file_id}:act"
                 self.store.append(
                     run_id,
-                    EventType.IDEMPOTENCY_SKIP,
-                    {"idempotency_key": inv_key},
+                    EventType.STEP_STARTED,
+                    {"decision": inv.decision.value if inv.decision else None},
+                    step_id=step_id,
+                )
+
+                outcome = self._act_on_invoice(run_id, inv, pending_approvals, ledger)
+                inv.outcome = outcome
+
+                if pending_approvals and self.config.auto_approve is None:
+                    go(RunState.AWAIT_APPROVAL)
+                    result.pending_approval_ids = list(pending_approvals)
+                    return result
+
+                self.store.remember_idempotent(
+                    inv_key,
+                    run_id,
+                    {
+                        "terminal": True,
+                        "decision": inv.decision.value if inv.decision else None,
+                        "outcome": outcome.value,
+                        "reason": inv.decision_reason,
+                        "canonical_vendor": inv.canonical_vendor,
+                        "invoice_number": inv.invoice_number,
+                    },
+                    step_id=step_id,
+                )
+                self.store.append(
+                    run_id,
+                    EventType.STEP_COMPLETED,
+                    {
+                        "idempotency_key": inv_key,
+                        "decision": inv.decision.value if inv.decision else None,
+                        "outcome": outcome.value,
+                        "canonical_vendor": inv.canonical_vendor,
+                        "invoice_number": inv.invoice_number,
+                        "irreversible": False,
+                        "ok": True,
+                    },
+                    step_id=step_id,
                 )
                 processed += 1
-                continue
 
-            decided = self.policy.decide_invoice(inv)
-            inv.decision = decided.decision
-            inv.decision_reason = decided.decision_reason
-            inv.canonical_vendor = decided.canonical_vendor
-            self.policy.remember_seen(inv)
+                if (
+                    self.config.crash_after_invoices is not None
+                    and processed >= self.config.crash_after_invoices
+                    and not resume
+                ):
+                    result.state = RunState.EXECUTE
+                    return result
 
-            if inv.security_finding:
-                self.store.append(
-                    run_id,
-                    EventType.SECURITY_FINDING,
-                    {
-                        "invoice_number": inv.invoice_number,
-                        "file_id": file_id,
-                        "pattern": "ignore previous instructions",
-                    },
-                )
+            go(RunState.VERIFY)
+        else:
+            invoices = result.invoices or self._load_invoices(run_id)
+            result.invoices = invoices
 
-            step_id = f"{file_id}:act"
-            self.store.append(
-                run_id,
-                EventType.STEP_STARTED,
-                {"decision": inv.decision.value if inv.decision else None},
-                step_id=step_id,
-            )
-
-            outcome = self._act_on_invoice(run_id, inv, pending_approvals)
-            inv.outcome = outcome
-
-            # Never mark terminal while waiting for a human — resume must re-enter.
-            if pending_approvals and self.config.auto_approve is None:
-                self._state(run_id, RunState.AWAIT_APPROVAL)
-                result.state = RunState.AWAIT_APPROVAL
-                result.pending_approval_ids = list(pending_approvals)
-                return result
-
-            self.store.remember_idempotent(
-                inv_key,
-                run_id,
-                {
-                    "terminal": True,
-                    "decision": inv.decision.value if inv.decision else None,
-                    "outcome": outcome.value,
-                    "reason": inv.decision_reason,
-                    "canonical_vendor": inv.canonical_vendor,
-                },
-                step_id=step_id,
-            )
-            self.store.append(
-                run_id,
-                EventType.STEP_COMPLETED,
-                {
-                    "idempotency_key": inv_key,
-                    "decision": inv.decision.value if inv.decision else None,
-                    "outcome": outcome.value,
-                },
-                step_id=step_id,
-            )
-            processed += 1
-
-            if (
-                self.config.crash_after_invoices is not None
-                and processed >= self.config.crash_after_invoices
-                and not resume
-            ):
-                # Simulated crash mid-EXECUTE (eval scenario 12).
-                result.state = RunState.EXECUTE
-                return result
-
-        # VERIFY
-        self._state(run_id, RunState.VERIFY)
-        self.store.append(run_id, EventType.VERIFICATION_STARTED, {})
-        assert self._portal_api is not None
-        # Fresh read client for independence
-        creds = portal_operator_credentials()
-        verify_api = PortalApiTool(
-            self.config.portal_base_url, email=creds.email, password=creds.password
-        )
-        try:
-            verifier = Verifier(verify_api)
-            verification = verifier.verify_invoices(invoices)
-        finally:
-            verify_api.close()
-        result.verification = verification
-        self.store.append(
-            run_id,
-            EventType.VERIFICATION_RESULT,
-            verification.model_dump(mode="json"),
-        )
-
-        repair_cycles = 0
-        while not verification.passed and repair_cycles < self.config.max_repair_cycles:
-            self._state(run_id, RunState.REPAIR)
-            repair_cycles += 1
-            result.recoveries += 1
-            self.store.append(
-                run_id,
-                EventType.RECOVERY_ATTEMPTED,
-                {"cycle": repair_cycles, "notes": verification.overall_notes},
-            )
-            # Safe repair: re-submit invoices that should be SUBMITTED but missing
-            self._repair_missing_submits(run_id, invoices)
-            repair_api = PortalApiTool(
-                self.config.portal_base_url, email=creds.email, password=creds.password
+        # VERIFY — always a fresh Playwright context (never shares executor cookies).
+        if fsm.state == RunState.VERIFY:
+            self.store.append(run_id, EventType.VERIFICATION_STARTED, {})
+            evidence = self.config.data_dir / "verify-evidence" / run_id
+            verifier = Verifier(
+                self.config.portal_base_url,
+                evidence_dir=evidence,
+                headless=self.config.headless,
             )
             try:
-                verification = Verifier(repair_api).verify_invoices(invoices)
+                verification = verifier.verify_invoices(invoices)
             finally:
-                repair_api.close()
+                verifier.close()
             result.verification = verification
             self.store.append(
                 run_id,
@@ -373,35 +386,62 @@ class InvoicePipeline:
                 verification.model_dump(mode="json"),
             )
 
-        # Mark outcomes from verification — agent never self-grades COMPLETED (SPEC §7).
-        for inv in invoices:
-            if inv.outcome in {InvoiceOutcome.FLAGGED, InvoiceOutcome.REFUSED}:
-                continue
-            if inv.decision == InvoiceDecision.SUBMIT:
-                inv.outcome = (
-                    InvoiceOutcome.COMPLETED
-                    if verification.passed
-                    else InvoiceOutcome.NEEDS_ATTENTION
+            repair_cycles = 0
+            while not verification.passed and repair_cycles < self.config.max_repair_cycles:
+                go(RunState.REPAIR)
+                repair_cycles += 1
+                result.recoveries += 1
+                self.store.append(
+                    run_id,
+                    EventType.RECOVERY_ATTEMPTED,
+                    {"cycle": repair_cycles, "notes": verification.overall_notes},
                 )
-            elif inv.decision == InvoiceDecision.NEEDS_APPROVAL:
-                # Portal PENDING_APPROVAL is success for the operator step; not "completed payable".
-                if not verification.passed:
-                    inv.outcome = InvoiceOutcome.NEEDS_ATTENTION
+                self._repair_missing_submits(run_id, invoices, ledger)
+                go(RunState.EXECUTE)
+                go(RunState.VERIFY)
+                verifier2 = Verifier(
+                    self.config.portal_base_url,
+                    evidence_dir=evidence / f"repair-{repair_cycles}",
+                    headless=self.config.headless,
+                )
+                try:
+                    verification = verifier2.verify_invoices(invoices)
+                finally:
+                    verifier2.close()
+                result.verification = verification
+                self.store.append(
+                    run_id,
+                    EventType.VERIFICATION_RESULT,
+                    verification.model_dump(mode="json"),
+                )
+
+            for inv in invoices:
+                if inv.outcome in {InvoiceOutcome.FLAGGED, InvoiceOutcome.REFUSED}:
+                    continue
+                if inv.decision == InvoiceDecision.SUBMIT:
+                    inv.outcome = (
+                        InvoiceOutcome.COMPLETED
+                        if verification.passed
+                        else InvoiceOutcome.NEEDS_ATTENTION
+                    )
+                elif inv.decision == InvoiceDecision.NEEDS_APPROVAL:
+                    if not verification.passed:
+                        inv.outcome = InvoiceOutcome.NEEDS_ATTENTION
+
+            go(RunState.REPORT)
+        else:
+            assert result.verification is not None
+            verification = result.verification
 
         # REPORT
-        self._state(run_id, RunState.REPORT)
         report = self._build_report(run_id, invoices, verification)
         result.report = report
         self.store.append(run_id, EventType.REPORT_CREATED, report.model_dump(mode="json"))
         self.episodic.distill_from_run(run_id, invoices, verification)
         self.store.append(run_id, EventType.RUN_COMPLETED, {"ok": verification.passed})
-        self._state(run_id, RunState.COMPLETE)
-        result.state = RunState.COMPLETE
+        go(RunState.COMPLETE)
         result.steps = self.budgets.steps
         return result
-
-    def _state(self, run_id: str, state: RunState) -> None:
-        self.store.append(run_id, EventType.STATE_CHANGED, {"state": state.value})
 
     def _load_invoices(self, run_id: str) -> list[InvoiceRecord]:
         files = self.registry.get("files")
@@ -461,7 +501,11 @@ class InvoicePipeline:
         return latest
 
     def _act_on_invoice(
-        self, run_id: str, inv: InvoiceRecord, pending_approvals: list[str]
+        self,
+        run_id: str,
+        inv: InvoiceRecord,
+        pending_approvals: list[str],
+        ledger: IrreversibleLedger,
     ) -> InvoiceOutcome:
         assert inv.decision is not None
         decision = inv.decision
@@ -539,7 +583,7 @@ class InvoicePipeline:
                     )
                     self._apply_approval(run_id, str(res.data["approval_id"]), "approve")
                 # Irreversible portal write only after clearance
-                return self._browser_submit(run_id, inv)
+                return self._browser_submit(run_id, inv, ledger)
             if status == "REJECTED" or self.config.auto_approve is False:
                 if status != "REJECTED":
                     ask = self.registry.get("ask_human")
@@ -583,24 +627,21 @@ class InvoicePipeline:
             return InvoiceOutcome.NEEDS_ATTENTION
 
         # ALLOW submit
-        return self._browser_submit(run_id, inv)
+        return self._browser_submit(run_id, inv, ledger)
 
-    def _browser_submit(self, run_id: str, inv: InvoiceRecord) -> InvoiceOutcome:
+    def _browser_submit(
+        self, run_id: str, inv: InvoiceRecord, ledger: IrreversibleLedger
+    ) -> InvoiceOutcome:
         browser = self.registry.get("browser")
-        key = f"{run_id}:{inv.invoice_number}:submit"
-        cached_submit = self.store.get_idempotent(key)
-        # Only skip when a prior attempt *succeeded* — failed attempts must be retryable.
-        if cached_submit and cached_submit.get("ok"):
+        key = irreversible_key(run_id, inv.invoice_number, "submit")
+        # Exactly-once: never re-submit a committed irreversible write.
+        if ledger.is_committed(key):
             self.store.append(
                 run_id,
                 EventType.IDEMPOTENCY_SKIP,
-                {"idempotency_key": key},
+                {"idempotency_key": key, "irreversible": True},
             )
-            return (
-                InvoiceOutcome.COMPLETED
-                if inv.decision == InvoiceDecision.SUBMIT
-                else InvoiceOutcome.NEEDS_ATTENTION
-            )
+            return InvoiceOutcome.NEEDS_ATTENTION
 
         def do_submit() -> Any:
             return browser.run(
@@ -637,7 +678,6 @@ class InvoicePipeline:
                 },
             )
         if not res.ok:
-            # Classify flaky/5xx banners as TRANSIENT so recovery retries.
             if res.failure is None:
                 res = res.model_copy(
                     update={
@@ -681,10 +721,15 @@ class InvoicePipeline:
                 "recovered_from_label": (res.data or {}).get("recovered_from_label"),
             },
         )
-        # Persist success only — irreversible writes must not skip after a failed attempt.
-        # Outcome stays provisional until the independent verifier upgrades SUBMIT → COMPLETED.
         if res.ok:
-            self.store.remember_idempotent(key, run_id, {"ok": True, "terminal": True})
+            ledger.commit(
+                key,
+                result={
+                    "invoice_number": inv.invoice_number,
+                    "url": (res.data or {}).get("url"),
+                },
+                step_id=f"{inv.invoice_number}:submit",
+            )
             return InvoiceOutcome.NEEDS_ATTENTION
         return InvoiceOutcome.NEEDS_ATTENTION
 
@@ -696,9 +741,10 @@ class InvoicePipeline:
             {"approval_id": approval_id, "decision": decision, "info": info},
         )
 
-    def _repair_missing_submits(self, run_id: str, invoices: list[InvoiceRecord]) -> None:
+    def _repair_missing_submits(
+        self, run_id: str, invoices: list[InvoiceRecord], ledger: IrreversibleLedger
+    ) -> None:
         for inv in invoices:
-            # Never repair refused/flagged invoices — that would undo policy denial.
             if inv.outcome in {
                 InvoiceOutcome.REFUSED,
                 InvoiceOutcome.FLAGGED,
@@ -710,7 +756,7 @@ class InvoicePipeline:
             found = api.run({"action": "invoice_by_number", "invoice_number": inv.invoice_number})
             if found.ok and found.data.get("result"):
                 continue
-            self._browser_submit(run_id, inv)
+            self._browser_submit(run_id, inv, ledger)
 
     def _build_report(
         self,

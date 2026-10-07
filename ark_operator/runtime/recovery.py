@@ -57,12 +57,18 @@ class Recovery:
             FailureKind.ELEMENT_NOT_FOUND,
             FailureKind.UI_CHANGED,
         }:
-            n = self.attempts.get(key, 0)
-            if n >= self.max_transient_retries or retry is None:
+            if retry is None:
                 return failure
-            self.attempts[key] = n + 1
-            self.backoff(n)
-            return retry()
+            last: ToolResult | Failure = failure
+            while self.attempts.get(key, 0) < self.max_transient_retries:
+                n = self.attempts.get(key, 0)
+                self.attempts[key] = n + 1
+                self.backoff(n)
+                result = retry()
+                if result.ok:
+                    return result
+                last = result.failure or failure
+            return last
         return failure
 
     def reset(self, key: str | None = None) -> None:

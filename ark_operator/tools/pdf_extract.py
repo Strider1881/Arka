@@ -8,12 +8,8 @@ from typing import Any
 
 from ark_operator.domain.enums import Confidence, FailureKind, RiskLevel
 from ark_operator.domain.models import Failure, InvoiceRecord, Observation
+from ark_operator.security.envelope import prepare_for_llm
 from ark_operator.tools.base import BaseTool, ToolResult
-
-INJECTION_RE = re.compile(
-    r"(ignore\s+previous\s+instructions|SYSTEM:\s*ignore)",
-    re.IGNORECASE,
-)
 
 
 class PdfExtractTool(BaseTool):
@@ -37,7 +33,7 @@ class PdfExtractTool(BaseTool):
             text = "\n".join((page.extract_text() or "") for page in pdf.pages)
 
         invoice = _parse_invoice_text(text, attachment_name=path.name)
-        security = bool(INJECTION_RE.search(text))
+        wrapped, security = prepare_for_llm(text)
         invoice.security_finding = security
         return ToolResult(
             ok=True,
@@ -47,15 +43,11 @@ class PdfExtractTool(BaseTool):
             ),
             data={
                 "invoice": invoice.model_dump(mode="json"),
-                "raw_text": text,
+                # Never put raw unwrapped text into events/logs — only wrapped for LLM.
                 "security_finding": security,
-                "untrusted_wrapped": _wrap_untrusted(text),
+                "untrusted_wrapped": wrapped,
             },
         )
-
-
-def _wrap_untrusted(text: str) -> str:
-    return f"<<<UNTRUSTED_DATA>>>\n{text}\n<<<END_UNTRUSTED_DATA>>>"
 
 
 def _parse_invoice_text(text: str, *, attachment_name: str) -> InvoiceRecord:

@@ -57,7 +57,6 @@ def test_sabotage_caught_by_verifier(eval_data_dir: Path, monkeypatch: pytest.Mo
     """P7: sabotaged 'completed' claim without portal record is caught."""
     from ark_operator.domain.enums import InvoiceDecision, InvoiceOutcome
     from ark_operator.domain.models import InvoiceRecord
-    from ark_operator.tools.portal_api import PortalApiTool
     from ark_operator.verify.verifier import Verifier
     from evals.runner import _free_port, _start_portal
 
@@ -76,13 +75,15 @@ def test_sabotage_caught_by_verifier(eval_data_dir: Path, monkeypatch: pytest.Mo
             outcome=InvoiceOutcome.COMPLETED,
             canonical_vendor="Northwind Supplies",
         )
-        api = PortalApiTool(base, email="operator@acmecorp.test", password="eval-pass")
+        verifier = Verifier(base, email="operator@acmecorp.test", password="eval-pass")
         try:
-            verification = Verifier(api).verify_invoices([inv])
+            verification = verifier.verify_invoices([inv])
         finally:
-            api.close()
+            verifier.close()
         assert verification.passed is False
         # Report must not claim success when verifier fails
-        assert any(not c.passed for c in verification.criteria)
+        assert any(
+            not c.passed for c in verification.criteria if c.name != "verifier_context_isolated"
+        )
     finally:
         server.should_exit = True

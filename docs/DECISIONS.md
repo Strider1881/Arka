@@ -63,3 +63,10 @@ Update when a phase introduces a new default.
 | Files sandbox | `company_world/` only — never `Path.cwd()` (`.env` exposure) |
 | UI run start | Background thread so Work screen + SSE are live while pipeline runs |
 | COMPLETED outcome | Set only after independent verifier passes (provisional NEEDS_ATTENTION post-submit) |
+| FSM ownership | `runtime/fsm.py` is the only legal transition table; pipeline/orchestrator must call it |
+| Pure fold | `fold_run` → `RunSnapshot` rebuilds state, irreversible keys, duplicate seeds |
+| Exactly-once writes | `IrreversibleLedger` — commit only after successful browser submit |
+| Verifier isolation | Fresh Playwright context in a worker thread + fresh portal_api (no shared cookies) |
+| Security center | `security/envelope.py` + `security/redact.py` — EventStore append always redacts |
+| Coverage gate | `make test` enforces ≥88% on policy/fsm/recovery/idempotency/verify/events |
+| FakeLLM boundary | Scripts understand/plan **structure** only; never policy, portal writes, or verify |

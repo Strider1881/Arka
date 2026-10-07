@@ -13,6 +13,7 @@ from ark_operator.events.replay import fold_working_state
 from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
 from ark_operator.runtime.budgets import Budgets
+from ark_operator.runtime.fsm import IllegalTransition, assert_legal
 from ark_operator.runtime.stall_detector import StallDetector
 
 
@@ -33,29 +34,6 @@ class RunContext:
     report: RunReport | None = None
     extras: dict[str, Any] = field(default_factory=dict)
     pause: bool = False  # set True to stop loop (await approval / kill checkpoint)
-
-
-ALLOWED: dict[RunState, set[RunState]] = {
-    RunState.INTAKE: {RunState.UNDERSTAND, RunState.FAILED},
-    RunState.UNDERSTAND: {RunState.CLARIFY, RunState.PLAN, RunState.FAILED},
-    RunState.CLARIFY: {RunState.PLAN, RunState.AWAIT_APPROVAL, RunState.FAILED},
-    RunState.PLAN: {RunState.EXECUTE, RunState.FAILED},
-    RunState.EXECUTE: {
-        RunState.EXECUTE,
-        RunState.AWAIT_APPROVAL,
-        RunState.VERIFY,
-        RunState.PLAN,
-        RunState.FAILED,
-        RunState.ESCALATED,
-    },
-    RunState.AWAIT_APPROVAL: {RunState.EXECUTE, RunState.FAILED, RunState.ESCALATED},
-    RunState.VERIFY: {RunState.REPAIR, RunState.REPORT, RunState.FAILED},
-    RunState.REPAIR: {RunState.EXECUTE, RunState.REPORT, RunState.FAILED},
-    RunState.REPORT: {RunState.COMPLETE, RunState.FAILED},
-    RunState.COMPLETE: set(),
-    RunState.ESCALATED: set(),
-    RunState.FAILED: set(),
-}
 
 
 class Orchestrator:
@@ -109,9 +87,10 @@ class Orchestrator:
         return ctx
 
     def transition(self, ctx: RunContext, new_state: RunState) -> None:
-        allowed = ALLOWED.get(ctx.state, set())
-        if new_state not in allowed and new_state != ctx.state:
-            raise ValueError(f"Illegal transition {ctx.state} -> {new_state}")
+        try:
+            assert_legal(ctx.state, new_state)
+        except IllegalTransition:
+            raise
         ctx.state = new_state
         self._set_state(ctx.run_id, new_state)
 

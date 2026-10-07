@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ark_operator.events.types import EventRecord, EventType
+from ark_operator.security.redact import redact_payload
 
 
 class EventStore:
@@ -86,7 +87,8 @@ class EventStore:
             seq = int(row["m"]) + 1
             ts = datetime.now(UTC).isoformat()
             et = EventType(event_type) if not isinstance(event_type, EventType) else event_type
-            body = payload or {}
+            body = redact_payload(payload or {})
+            assert isinstance(body, dict)
             cur = conn.execute(
                 """
                     INSERT INTO events (run_id, seq, ts, type, step_id, payload)
@@ -279,5 +281,7 @@ class EventStore:
 
     def list_run_ids(self) -> list[str]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT DISTINCT run_id FROM events ORDER BY MIN(id)").fetchall()
+            rows = conn.execute(
+                "SELECT run_id FROM events GROUP BY run_id ORDER BY MIN(id)"
+            ).fetchall()
         return [str(r["run_id"]) for r in rows]

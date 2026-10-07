@@ -22,7 +22,15 @@ run:
 	uv run operator run "Process this month's pending vendor invoices." --auto-approve
 
 test:
-	uv run pytest -q
+	uv run pytest -q \
+		--cov=ark_operator.policy \
+		--cov=ark_operator.runtime.fsm \
+		--cov=ark_operator.runtime.recovery \
+		--cov=ark_operator.runtime.idempotency \
+		--cov=ark_operator.verify \
+		--cov=ark_operator.events \
+		--cov-report=term-missing:skip-covered \
+		--cov-fail-under=88
 
 lint:
 	uv run ruff check ark_operator company_world evals tests

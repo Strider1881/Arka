@@ -6,6 +6,7 @@ from typing import Any
 
 from ark_operator.domain.models import Interpretation, PolicyCitation
 from ark_operator.llm.base import LLMClient
+from ark_operator.security.envelope import wrap_untrusted
 
 
 class Understander:
@@ -24,9 +25,7 @@ class Understander:
             wrapped_knowledge.append(
                 {
                     **{k: v for k, v in hit.items() if k not in {"text", "chunk"}},
-                    "text": (
-                        f"<<<UNTRUSTED_DATA>>>\n{text}\n<<<END_UNTRUSTED_DATA>>>" if text else text
-                    ),
+                    "text": wrap_untrusted(text) if text else text,
                 }
             )
         variables = {
