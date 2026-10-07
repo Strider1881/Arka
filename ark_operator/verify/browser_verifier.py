@@ -72,7 +72,7 @@ class BrowserVerifier:
                 page.screenshot(path=str(self.evidence_dir / "verifier_invoices.png"))
             except Exception as exc:  # noqa: BLE001
                 note = f"browser_scrape_error={exc}"
-            state = context.storage_state()
+            state = dict(context.storage_state())
             context.close()
             browser.close()
             pw.stop()
