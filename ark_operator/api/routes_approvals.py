@@ -1,14 +1,12 @@
-"""HTTP routes for durable approval decisions.
+"""HTTP routes for durable approval decisions."""
 
-STUB: P6/P9.
-"""
+from __future__ import annotations
 
 from fastapi import APIRouter
 
-router = APIRouter(prefix="/approvals", tags=["approvals"])
+router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 
 
 @router.get("/")
 def list_approvals() -> dict[str, object]:
-    """List pending approvals. STUB."""
-    return {"approvals": [], "note": "STUB"}
+    return {"approvals": [], "note": "Use HTML approval forms on /runs/{id}"}

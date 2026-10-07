@@ -1,14 +1,13 @@
-"""HTTP routes for starting and inspecting runs.
+"""HTTP routes for starting and inspecting runs."""
 
-STUB: P9.
-"""
+from __future__ import annotations
 
 from fastapi import APIRouter
 
-router = APIRouter(prefix="/runs", tags=["runs"])
+router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
 @router.get("/")
 def list_runs() -> dict[str, object]:
-    """List runs. STUB."""
-    return {"runs": [], "note": "STUB"}
+    """List runs. Prefer HTML UI routes in app.py for the demo path."""
+    return {"runs": [], "note": "Use GET / and POST /runs HTML handoff"}

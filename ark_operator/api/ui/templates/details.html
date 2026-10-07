@@ -1,0 +1,21 @@
+{% extends "base_op.html" %}
+{% block title %}Details — Operator{% endblock %}
+{% block content %}
+<h1>Details</h1>
+<p class="lead">Event timeline for run <code>{{ run_id }}</code></p>
+<div class="card">
+  <table>
+    <thead><tr><th>Seq</th><th>Type</th><th>Step</th></tr></thead>
+    <tbody>
+    {% for e in timeline %}
+      <tr>
+        <td>{{ e.seq }}</td>
+        <td>{{ e.type }}</td>
+        <td>{{ e.step_id or "—" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p><a href="/runs/{{ run_id }}">Back</a></p>
+{% endblock %}

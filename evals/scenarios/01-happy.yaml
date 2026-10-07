@@ -1,0 +1,5 @@
+id: 01-happy
+name: Happy path
+faults: []
+auto_approve: true
+request: Process this month's pending vendor invoices.

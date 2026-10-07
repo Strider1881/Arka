@@ -1,0 +1,55 @@
+{% extends "base_op.html" %}
+{% block title %}Proof — Operator{% endblock %}
+{% block content %}
+<h1>Proof</h1>
+<p class="lead">{{ report.summary if report else "Run finished." }}</p>
+
+{% if report and report.verification %}
+<div class="card">
+  <h2>Verified</h2>
+  <p class="{% if report.verification.passed %}ok{% else %}bad{% endif %}">
+    {{ "PASS" if report.verification.passed else "FAIL" }}
+    · {{ report.verification.confidence }}
+    · {{ report.verification.overall_notes }}
+  </p>
+  <table>
+    <thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
+    <tbody>
+    {% for c in report.verification.criteria %}
+      <tr>
+        <td>{{ c.name }}</td>
+        <td class="{% if c.passed %}ok{% else %}bad{% endif %}">{{ "pass" if c.passed else "fail" }}</td>
+        <td>{{ c.detail }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Invoices</h2>
+  <table>
+    <thead><tr><th>Invoice</th><th>Outcome</th><th>Reason</th><th>Verified</th></tr></thead>
+    <tbody>
+    {% for inv in report.invoices %}
+      <tr>
+        <td>{{ inv.invoice_number }}</td>
+        <td>{{ inv.outcome }}</td>
+        <td>{{ inv.reason }}</td>
+        <td>{{ "yes" if inv.verified else "no" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if report.security_findings %}
+<div class="card warn">
+  <h2>Security findings</h2>
+  <p>{{ report.security_findings | join(', ') }}</p>
+</div>
+{% endif %}
+
+<p><a class="btn secondary" href="/runs/{{ run_id }}/details">Details</a> · <a href="/">New request</a></p>
+{% endblock %}

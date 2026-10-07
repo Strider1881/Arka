@@ -1,0 +1,7 @@
+id: 08-mismatch
+name: Amount mismatch
+faults: []
+auto_approve: true
+invoice_filter:
+- INV-1005
+request: Process this month's pending vendor invoices.

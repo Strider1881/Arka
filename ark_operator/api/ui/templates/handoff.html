@@ -1,0 +1,14 @@
+{% extends "base_op.html" %}
+{% block title %}Handoff — Operator{% endblock %}
+{% block content %}
+<h1>Handoff</h1>
+<p class="lead">One request. Operator finishes the job, proves it, and only interrupts when it matters.</p>
+<form method="post" action="/runs" class="card">
+  <label for="goal" class="status">Company request</label>
+  <textarea id="goal" name="goal" required>{{ default_request }}</textarea>
+  <div class="actions">
+    <button type="submit">Start work</button>
+  </div>
+</form>
+<p class="status">Requires AcmeCorp Procure running (<code>make portal</code>) and inbox PDFs.</p>
+{% endblock %}

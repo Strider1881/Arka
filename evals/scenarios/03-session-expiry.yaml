@@ -1,0 +1,9 @@
+id: 03-session-expiry
+name: Session expiry
+faults:
+- session_expiry
+session_expiry_n: 5
+auto_approve: true
+invoice_filter:
+- INV-1011
+request: Process this month's pending vendor invoices.

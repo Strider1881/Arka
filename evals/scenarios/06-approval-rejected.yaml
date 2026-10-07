@@ -1,0 +1,7 @@
+id: 06-approval-rejected
+name: Approval rejected
+faults: []
+auto_approve: false
+invoice_filter:
+- INV-1003
+request: Process this month's pending vendor invoices.

@@ -1,6 +1,7 @@
 # Prompts
 
-Versioned `.md` prompt files live here (SPEC §10).
+Versioned `.md` prompt files can live here (SPEC §10).
 
-STUB: prompts added starting in P4 (understand/plan) and later phases.
-Each file should include a version header.
+Understand/plan prompts are currently inlined in `ark_operator/runtime/understand.py`
+and `ark_operator/runtime/planner.py` (FakeLLM scripts + AnthropicClient when keyed).
+Extract to versioned `.md` files when iterating on real-LLM quality.

@@ -1,0 +1,7 @@
+id: 05-approval-granted
+name: Over-threshold approval granted
+faults: []
+auto_approve: true
+invoice_filter:
+- INV-1003
+request: Process this month's pending vendor invoices.

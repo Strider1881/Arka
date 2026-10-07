@@ -1,0 +1,8 @@
+id: 07-duplicate
+name: Duplicate invoice
+faults: []
+auto_approve: true
+invoice_filter:
+- INV-1001
+- INV-1004
+request: Process this month's pending vendor invoices.

@@ -1,0 +1,8 @@
+id: 04-ui-rename
+name: UI rename
+faults:
+- ui_rename
+auto_approve: true
+invoice_filter:
+- INV-1012
+request: Process this month's pending vendor invoices.

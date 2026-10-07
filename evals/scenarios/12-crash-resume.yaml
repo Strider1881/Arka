@@ -1,0 +1,8 @@
+id: 12-crash-resume
+name: Crash and resume
+faults: []
+auto_approve: true
+invoice_filter:
+- INV-1002
+request: Process this month's pending vendor invoices.
+notes: Covered also by unit kill/resume test on orchestrator

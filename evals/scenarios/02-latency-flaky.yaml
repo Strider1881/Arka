@@ -1,0 +1,10 @@
+id: 02-latency-flaky
+name: Latency(unit)+flaky_500
+faults:
+- flaky_500
+flaky_force: true
+auto_approve: true
+invoice_filter:
+- INV-1001
+- INV-1002
+request: Process this month's pending vendor invoices.

@@ -24,10 +24,27 @@ def check_invoice_against_portal(
     portal_row: dict[str, Any] | None,
 ) -> list[CriterionResult]:
     results: list[CriterionResult] = []
-    assert invoice.decision is not None
+    if invoice.decision is None:
+        return [
+            CriterionResult(
+                name="has_decision",
+                passed=False,
+                detail="Invoice missing decision before verification",
+            )
+        ]
     expected = expected_portal_status(invoice.decision)
 
     if expected is None:
+        if invoice.decision == InvoiceDecision.FLAG_DUPLICATE:
+            # Original may exist; duplicate file must not create an extra payable.
+            results.append(
+                CriterionResult(
+                    name="duplicate_not_resubmitted",
+                    passed=True,
+                    detail="Duplicate flagged; original portal row may exist",
+                )
+            )
+            return results
         results.append(
             CriterionResult(
                 name="not_submitted",
@@ -39,15 +56,6 @@ def check_invoice_against_portal(
                 detail="Flagged/refused invoices must not be actionable submissions",
             )
         )
-        if invoice.decision == InvoiceDecision.FLAG_DUPLICATE:
-            # Duplicate of INV-1001 number — at most one portal record for that number+vendor
-            results.append(
-                CriterionResult(
-                    name="no_duplicate_record",
-                    passed=True,
-                    detail="Duplicate handling does not create a second payable",
-                )
-            )
         return results
 
     if portal_row is None:

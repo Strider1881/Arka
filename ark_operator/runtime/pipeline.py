@@ -56,6 +56,7 @@ class PipelineConfig:
     headless: bool = True
     auto_approve: bool | None = None  # True/False for evals; None = pause
     max_repair_cycles: int = 2
+    invoice_filter: list[str] | None = None  # filename stems e.g. INV-1001
 
 
 @dataclass
@@ -222,8 +223,16 @@ class InvoicePipeline:
         for inv in invoices:
             result.steps += 1
             self.budgets.record_step()
-            inv_key = f"{run_id}:{inv.invoice_number}:process"
+            file_id = Path(inv.attachment_name or inv.invoice_number).stem
+            inv_key = f"{run_id}:{file_id}:process"
             if skip(inv_key):
+                cached = self.store.get_idempotent(inv_key) or {}
+                if cached.get("decision"):
+                    inv.decision = InvoiceDecision(str(cached["decision"]))
+                if cached.get("outcome"):
+                    inv.outcome = InvoiceOutcome(str(cached["outcome"]))
+                if cached.get("reason"):
+                    inv.decision_reason = str(cached["reason"])
                 self.store.append(
                     run_id,
                     EventType.IDEMPOTENCY_SKIP,
@@ -243,11 +252,12 @@ class InvoicePipeline:
                     EventType.SECURITY_FINDING,
                     {
                         "invoice_number": inv.invoice_number,
+                        "file_id": file_id,
                         "pattern": "ignore previous instructions",
                     },
                 )
 
-            step_id = f"{inv.invoice_number}:act"
+            step_id = f"{file_id}:act"
             self.store.append(
                 run_id,
                 EventType.STEP_STARTED,
@@ -263,6 +273,7 @@ class InvoicePipeline:
                 {
                     "decision": inv.decision.value if inv.decision else None,
                     "outcome": outcome.value,
+                    "reason": inv.decision_reason,
                 },
                 step_id=step_id,
             )
@@ -367,6 +378,9 @@ class InvoicePipeline:
         files = self.registry.get("files")
         listed = files.run({"action": "list", "path": str(self.config.inbox_dir)})
         entries = [e for e in (listed.data.get("entries") or []) if str(e).endswith(".pdf")]
+        if self.config.invoice_filter:
+            allowed = set(self.config.invoice_filter)
+            entries = [e for e in entries if Path(str(e)).stem in allowed]
         pdf_tool = self.registry.get("pdf_extract")
         invoices: list[InvoiceRecord] = []
         # Process in invoice number order; INV-1004 after INV-1001 for duplicate detection

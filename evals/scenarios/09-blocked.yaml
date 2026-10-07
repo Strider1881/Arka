@@ -1,0 +1,7 @@
+id: 09-blocked
+name: Blocked vendor
+faults: []
+auto_approve: true
+invoice_filter:
+- INV-1009
+request: Process this month's pending vendor invoices.
