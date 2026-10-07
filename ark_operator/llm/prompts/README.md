@@ -1,7 +1,10 @@
 # Prompts
 
-Versioned `.md` prompt files can live here (SPEC §10).
+Versioned `.md` prompt files (SPEC §10). Each file starts with `version: N`.
 
-Understand/plan prompts are currently inlined in `ark_operator/runtime/understand.py`
-and `ark_operator/runtime/planner.py` (FakeLLM scripts + AnthropicClient when keyed).
-Extract to versioned `.md` files when iterating on real-LLM quality.
+| File | Used by |
+|------|---------|
+| `understand.md` | `AnthropicClient` / Understander |
+| `plan_top.md` | `AnthropicClient` / Planner |
+
+FakeLLM scripts in `build_default_fake_llm()` mirror these for CI without an API key.

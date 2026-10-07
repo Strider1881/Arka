@@ -45,18 +45,20 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_approve(args: argparse.Namespace) -> int:
     store = _store()
-    info = store.decide_approval(args.approval_id, "reject" if args.reject else "approve")
+    decision = "reject" if args.reject else "approve"
+    info = store.decide_approval(args.approval_id, decision)
     if not info:
         print("Approval not found", file=sys.stderr)
         return 1
     store.append(
         info["run_id"],
         EventType.APPROVAL_DECIDED,
-        {"approval_id": args.approval_id, "decision": "reject" if args.reject else "approve"},
+        {"approval_id": args.approval_id, "decision": decision, "info": info},
     )
+    # Only the decided approval is applied; do not blanket-auto-approve the rest.
     cfg = PipelineConfig(
         portal_base_url=os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765"),
-        auto_approve=not args.reject,
+        auto_approve=None,
     )
     InvoicePipeline(store, build_default_fake_llm(), cfg).resume(info["run_id"])
     print(json.dumps({"resumed": info["run_id"], "decision": info["status"]}))

@@ -51,3 +51,10 @@ Update when a phase introduces a new default.
 | Learning | Episodic memory records fault recoveries; second run under same fault improves |
 | UI | Three HTMX screens (Handoff / Work / Proof) + Details; SSE for live progress |
 | `make demo` | Headless subset INV-1001, INV-1008, INV-1010 against running portal |
+| Approval gating | **Pause before browser submit** when `REQUIRE_APPROVAL` and no human decision yet — portal write is irreversible clearance |
+| Idempotency terminal flag | Process keys only marked `terminal` after a finished outcome; awaiting approval is not terminal so resume re-enters |
+| Duplicate verify | Fail if portal has a row whose `attachment_name` matches the duplicate file (INV-1004.pdf) |
+| Learning lever | Run1 without lessons uses label-first submit (fails under `ui_rename`); run2 uses stable ids from episodic lessons |
+| Verifier independence | Fresh `PortalApiTool` session per verify/repair cycle (separate from executor browser context) |
+| Prompts | Versioned `.md` under `ark_operator/llm/prompts/`; FakeLLM scripts remain CI path |
+| Crash-resume eval | Scenario 12 sets `crash_after_invoices` then resumes from the same event store |

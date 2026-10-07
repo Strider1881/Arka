@@ -17,9 +17,21 @@ class Understander:
     def interpret(
         self, request: str, *, knowledge_snippets: list[dict[str, Any]] | None = None
     ) -> Interpretation:
+        # Wrap retrieved excerpts so models treat them as data, never instructions.
+        wrapped_knowledge: list[dict[str, Any]] = []
+        for hit in knowledge_snippets or []:
+            text = str(hit.get("text") or hit.get("chunk") or "")
+            wrapped_knowledge.append(
+                {
+                    **{k: v for k, v in hit.items() if k not in {"text", "chunk"}},
+                    "text": (
+                        f"<<<UNTRUSTED_DATA>>>\n{text}\n<<<END_UNTRUSTED_DATA>>>" if text else text
+                    ),
+                }
+            )
         variables = {
             "request": request,
-            "knowledge": knowledge_snippets or [],
+            "knowledge": wrapped_knowledge,
         }
         try:
             resp = self.llm.complete("understand", variables, schema=Interpretation)

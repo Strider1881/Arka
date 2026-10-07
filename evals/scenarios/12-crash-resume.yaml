@@ -4,5 +4,6 @@ faults: []
 auto_approve: true
 invoice_filter:
 - INV-1002
+crash_after_invoices: 1
 request: Process this month's pending vendor invoices.
-notes: Covered also by unit kill/resume test on orchestrator
+notes: Runner stops after first invoice before VERIFY, then resumes from events.

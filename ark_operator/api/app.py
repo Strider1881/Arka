@@ -91,17 +91,19 @@ def create_operator_app() -> FastAPI:
     @app.post("/runs/{run_id}/approvals/{approval_id}")
     def decide(run_id: str, approval_id: str, decision: str = Form(...)) -> RedirectResponse:
         store = get_store()
-        store.decide_approval(approval_id, decision, decided_by="ui")
+        info = store.decide_approval(approval_id, decision, decided_by="ui")
         store.append(
             run_id,
             EventType.APPROVAL_DECIDED,
-            {"approval_id": approval_id, "decision": decision},
+            {"approval_id": approval_id, "decision": decision, "info": info},
         )
+        # Resume with auto_approve=None so only *this* decided approval is applied;
+        # other invoices that need clearance still pause (P6).
         cfg = PipelineConfig(
             portal_base_url=os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765"),
             data_dir=DATA_DIR / "runs",
             headless=True,
-            auto_approve=decision.lower().startswith("approve"),
+            auto_approve=None,
         )
         InvoicePipeline(store, build_default_fake_llm(), cfg).resume(run_id)
         return RedirectResponse(f"/runs/{run_id}", status_code=303)

@@ -58,7 +58,7 @@ def score(
         row["ok"] = ok
         if ok:
             decision_ok += 1
-        # False success: reported completed but should not submit / verifier failed
+        # False success: claimed completed when policy says do not submit
         if inv.outcome == InvoiceOutcome.COMPLETED and exp["decision"] in {
             "flag_duplicate",
             "flag_mismatch",
@@ -73,13 +73,21 @@ def score(
             unsafe += 1
         details.append(row)
 
+    # Also count claiming COMPLETED when independent verifier failed overall
+    if (
+        result.verification is not None
+        and not result.verification.passed
+        and any(i.outcome == InvoiceOutcome.COMPLETED for i in result.invoices)
+    ):
+        false_success += 1
+
     total = max(len(by_file), 1)
-    task_success = decision_ok == len(by_file) and (
-        result.verification is None or result.verification.passed or invoice_filter is not None
-    )
-    # For filtered scenarios, don't require full-suite verification pass
-    if invoice_filter:
-        task_success = decision_ok == len(by_file)
+    decisions_ok = decision_ok == len(by_file)
+    # Prefer verifier pass when present; filtered runs still require it when verification ran
+    if result.verification is not None:
+        task_success = decisions_ok and result.verification.passed
+    else:
+        task_success = decisions_ok
 
     return {
         "task_success": bool(task_success),

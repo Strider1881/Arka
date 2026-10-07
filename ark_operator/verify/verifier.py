@@ -24,16 +24,22 @@ class Verifier:
 
         for inv in invoices:
             rows = by_number.get(inv.invoice_number, [])
-            # Prefer matching vendor when duplicates of number exist
+            # Prefer matching vendor / attachment when multiple rows share a number
             portal_row = None
             if rows:
-                canonical = inv.canonical_vendor or inv.vendor
-                portal_row = next(
-                    (r for r in rows if str(r.get("vendor") or "") in {inv.vendor, canonical}),
-                    rows[0],
-                )
-                # For flag_duplicate of same number, presence of one record is OK
-            criteria.extend(check_invoice_against_portal(inv, portal_row))
+                attachment = inv.attachment_name
+                if attachment:
+                    portal_row = next(
+                        (r for r in rows if str(r.get("attachment_name") or "") == attachment),
+                        None,
+                    )
+                if portal_row is None:
+                    canonical = inv.canonical_vendor or inv.vendor
+                    portal_row = next(
+                        (r for r in rows if str(r.get("vendor") or "") in {inv.vendor, canonical}),
+                        rows[0],
+                    )
+            criteria.extend(check_invoice_against_portal(inv, portal_row, all_rows_for_number=rows))
 
         passed = all(c.passed for c in criteria) if criteria else False
         conf = Confidence.HIGH if passed else Confidence.MEDIUM

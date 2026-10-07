@@ -26,11 +26,15 @@ class BrowserTool(BaseTool):
         base_url: str,
         evidence_dir: Path,
         headless: bool = True,
+        prefer_label_first: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.evidence_dir = Path(evidence_dir)
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
         self.headless = headless
+        # When True (no episodic lessons yet), try visible button text before stable ids.
+        # Under ui_rename this fails once and we fall back — teaching the lesson for run 2.
+        self.prefer_label_first = prefer_label_first
         self._pw: Any = None
         self._browser: Any = None
         self._context: Any = None
@@ -38,6 +42,7 @@ class BrowserTool(BaseTool):
         self._refs: dict[str, Any] = {}
         self.evidence: list[Evidence] = []
         self._logged_in = False
+        self.label_fallbacks = 0
 
     def close(self) -> None:
         if self._context:
@@ -265,16 +270,50 @@ class BrowserTool(BaseTool):
             page.fill("#invoice_date", str(args["invoice_date"]))
         if args.get("attachment_name"):
             page.fill("#attachment_name", str(args["attachment_name"]))
-        page.click("#submit-invoice-button")
+        recovered_from_label = False
+        if self.prefer_label_first:
+            try:
+                page.get_by_role("button", name=re.compile(r"^Submit invoice$", re.I)).click(
+                    timeout=1500
+                )
+            except Exception:
+                # UI_CHANGED / renamed label — recover via stable element id (SPEC §6.6).
+                self.label_fallbacks += 1
+                recovered_from_label = True
+                page.click("#submit-invoice-button")
+        else:
+            page.click("#submit-invoice-button")
         page.wait_for_timeout(400)
         after = self._screenshot(f"after_submit_{args.get('invoice_number', 'inv')}")
         obs = self._observe()
         banner = " ".join(obs.get("banners") or [])
-        ok = "Duplicate submit blocked" not in banner and "/login" not in obs["url"]
+        body = ""
+        try:
+            body = page.content()[:500]
+        except Exception:
+            body = ""
+        # flaky_500 returns JSON 500 — treat as TRANSIENT failure, not success.
+        flaky_500 = "injected flaky_500" in body or "flaky_500" in body
+        # Success lands on invoice detail or list, not the submit form / login / JSON error.
+        landed_ok = "/invoices/" in obs["url"] and "/submit" not in obs["url"]
+        ok = (
+            landed_ok
+            and "Duplicate submit blocked" not in banner
+            and "/login" not in obs["url"]
+            and not flaky_500
+        )
+        failure = None
+        if not ok:
+            kind = FailureKind.TRANSIENT if flaky_500 or "500" in body else FailureKind.UI_CHANGED
+            if "/login" in obs["url"]:
+                kind = FailureKind.AUTH_EXPIRED
+            msg = banner or ("flaky_500" if flaky_500 else f"Submit did not land: {obs['url']}")
+            failure = Failure(kind=kind, message=msg, retryable=True)
         return ToolResult(
             ok=ok,
+            failure=failure,
             observation=Observation(
-                summary="Submitted invoice form" if ok else f"Submit issue: {banner}",
+                summary="Submitted invoice form" if ok else f"Submit issue: {banner or obs['url']}",
                 data=obs,
                 success=ok,
             ),
@@ -283,6 +322,7 @@ class BrowserTool(BaseTool):
                 "evidence": [before.id, after.id],
                 "url": obs["url"],
                 "banner": banner,
+                "recovered_from_label": recovered_from_label,
             },
         )
 

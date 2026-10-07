@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ark_operator.domain.enums import (
+    FailureKind,
     InvoiceDecision,
     InvoiceOutcome,
     RiskLevel,
@@ -14,6 +15,7 @@ from ark_operator.domain.enums import (
     StepStatus,
 )
 from ark_operator.domain.models import (
+    Failure,
     Interpretation,
     InvoiceLineResult,
     InvoiceRecord,
@@ -57,6 +59,8 @@ class PipelineConfig:
     auto_approve: bool | None = None  # True/False for evals; None = pause
     max_repair_cycles: int = 2
     invoice_filter: list[str] | None = None  # filename stems e.g. INV-1001
+    # Test/eval hook: stop after N invoices before VERIFY (crash/resume AC).
+    crash_after_invoices: int | None = None
 
 
 @dataclass
@@ -100,19 +104,21 @@ class InvoicePipeline:
         self._browser: BrowserTool | None = None
         self._portal_api: PortalApiTool | None = None
 
-    def _setup_tools(self, run_id: str) -> None:
+    def _setup_tools(self, run_id: str, *, prefer_label_first: bool = False) -> None:
         creds = portal_operator_credentials()
         evidence = self.config.data_dir / "evidence" / run_id
         self._browser = BrowserTool(
             base_url=self.config.portal_base_url,
             evidence_dir=evidence,
             headless=self.config.headless,
+            prefer_label_first=prefer_label_first,
         )
         self._portal_api = PortalApiTool(
             self.config.portal_base_url,
             email=creds.email,
             password=creds.password,
         )
+        self.registry = ToolRegistry()
         self.registry.register(FilesTool([Path("company_world").resolve(), Path.cwd()]))
         self.registry.register(PdfExtractTool())
         self.registry.register(KnowledgeSearchTool(self.knowledge))
@@ -130,10 +136,9 @@ class InvoicePipeline:
         orch = Orchestrator(self.store)
         if run_id is None:
             run_id = orch.start(request)
-        else:
-            # resume
-            pass
-        self._setup_tools(run_id)
+        lessons = self.episodic.retrieve("portal_ui", top_k=5)
+        # No lessons yet → explore label-based submit (fails under ui_rename, then recovers).
+        self._setup_tools(run_id, prefer_label_first=not bool(lessons))
         try:
             return self._execute(run_id, request)
         finally:
@@ -146,7 +151,8 @@ class InvoicePipeline:
             if ev.type == EventType.RUN_STARTED:
                 goal = str(ev.payload.get("goal", ""))
                 break
-        self._setup_tools(run_id)
+        lessons = self.episodic.retrieve("portal_ui", top_k=5)
+        self._setup_tools(run_id, prefer_label_first=not bool(lessons))
         try:
             return self._execute(run_id, goal or "Process invoices", resume=True)
         finally:
@@ -154,21 +160,27 @@ class InvoicePipeline:
 
     def _execute(self, run_id: str, request: str, *, resume: bool = False) -> PipelineResult:
         result = PipelineResult(run_id=run_id, state=RunState.INTAKE, report=None)
-        completed = self.store.completed_idempotency_keys(run_id)
 
-        def skip(key: str) -> bool:
-            return key in completed or self.store.get_idempotent(key) is not None
+        def is_terminal(key: str) -> bool:
+            cached = self.store.get_idempotent(key)
+            return bool(cached and cached.get("terminal"))
 
         # INTAKE -> UNDERSTAND
         self._state(run_id, RunState.UNDERSTAND)
         if not self.knowledge.search("invoice", top_k=1):
             self.knowledge.ingest(self.config.knowledge_dir)
         hits = self.knowledge.search("invoice approval tolerance vendor duplicate security")
-        lessons = self.episodic.retrieve("portal ui fault", top_k=5)
+        lessons = self.episodic.retrieve("portal_ui", top_k=5)
         self.store.append(
             run_id,
             EventType.KNOWLEDGE_RETRIEVED,
-            {"hits": hits, "lessons": lessons},
+            {
+                "hits": [
+                    {"file": h.get("file"), "heading": h.get("heading"), "score": h.get("score")}
+                    for h in hits
+                ],
+                "lessons": lessons,
+            },
         )
         interpretation = self.understander.interpret(request, knowledge_snippets=hits)
         self.store.append(
@@ -180,7 +192,6 @@ class InvoicePipeline:
         # PLAN
         self._state(run_id, RunState.PLAN)
         plan = self.planner.create_plan(interpretation)
-        # Apply episodic lessons: prefer stable element ids (already used)
         if lessons:
             plan = self.planner.revise(
                 plan,
@@ -216,16 +227,17 @@ class InvoicePipeline:
 
         # EXECUTE: extract + decide + act per invoice
         self._state(run_id, RunState.EXECUTE)
-        invoices = self._load_invoices(run_id, skip)
+        invoices = self._load_invoices(run_id)
         result.invoices = invoices
 
         pending_approvals: list[str] = []
+        processed = 0
         for inv in invoices:
             result.steps += 1
             self.budgets.record_step()
             file_id = Path(inv.attachment_name or inv.invoice_number).stem
             inv_key = f"{run_id}:{file_id}:process"
-            if skip(inv_key):
+            if is_terminal(inv_key):
                 cached = self.store.get_idempotent(inv_key) or {}
                 if cached.get("decision"):
                     inv.decision = InvoiceDecision(str(cached["decision"]))
@@ -238,10 +250,10 @@ class InvoicePipeline:
                     EventType.IDEMPOTENCY_SKIP,
                     {"idempotency_key": inv_key},
                 )
+                processed += 1
                 continue
 
             decided = self.policy.decide_invoice(inv)
-            # merge decision onto inv
             inv.decision = decided.decision
             inv.decision_reason = decided.decision_reason
             inv.canonical_vendor = decided.canonical_vendor
@@ -267,10 +279,19 @@ class InvoicePipeline:
 
             outcome = self._act_on_invoice(run_id, inv, pending_approvals)
             inv.outcome = outcome
+
+            # Never mark terminal while waiting for a human — resume must re-enter.
+            if pending_approvals and self.config.auto_approve is None:
+                self._state(run_id, RunState.AWAIT_APPROVAL)
+                result.state = RunState.AWAIT_APPROVAL
+                result.pending_approval_ids = list(pending_approvals)
+                return result
+
             self.store.remember_idempotent(
                 inv_key,
                 run_id,
                 {
+                    "terminal": True,
                     "decision": inv.decision.value if inv.decision else None,
                     "outcome": outcome.value,
                     "reason": inv.decision_reason,
@@ -287,18 +308,16 @@ class InvoicePipeline:
                 },
                 step_id=step_id,
             )
+            processed += 1
 
-            if pending_approvals and self.config.auto_approve is None:
-                self._state(run_id, RunState.AWAIT_APPROVAL)
-                result.state = RunState.AWAIT_APPROVAL
-                result.pending_approval_ids = pending_approvals
+            if (
+                self.config.crash_after_invoices is not None
+                and processed >= self.config.crash_after_invoices
+                and not resume
+            ):
+                # Simulated crash mid-EXECUTE (eval scenario 12).
+                result.state = RunState.EXECUTE
                 return result
-
-        # Auto-approve path for evals
-        if pending_approvals and self.config.auto_approve is not None:
-            for aid in list(pending_approvals):
-                decision = "approve" if self.config.auto_approve else "reject"
-                self._apply_approval(run_id, aid, decision)
 
         # VERIFY
         self._state(run_id, RunState.VERIFY)
@@ -374,7 +393,7 @@ class InvoicePipeline:
     def _state(self, run_id: str, state: RunState) -> None:
         self.store.append(run_id, EventType.STATE_CHANGED, {"state": state.value})
 
-    def _load_invoices(self, run_id: str, skip: Any) -> list[InvoiceRecord]:
+    def _load_invoices(self, run_id: str) -> list[InvoiceRecord]:
         files = self.registry.get("files")
         listed = files.run({"action": "list", "path": str(self.config.inbox_dir)})
         entries = [e for e in (listed.data.get("entries") or []) if str(e).endswith(".pdf")]
@@ -401,7 +420,7 @@ class InvoicePipeline:
                 continue
             inv = InvoiceRecord.model_validate(extracted.data["invoice"])
             inv.security_finding = bool(extracted.data.get("security_finding"))
-            # Never put secrets in events; raw_text is untrusted doc data only
+            # Never put secrets or full PDF text in events
             self.store.append(
                 run_id,
                 EventType.OBSERVATION,
@@ -416,11 +435,27 @@ class InvoicePipeline:
             invoices.append(inv)
         return invoices
 
+    def _approval_status_for(self, run_id: str, inv: InvoiceRecord) -> str | None:
+        """Return APPROVED/REJECTED/PENDING if an approval exists for this invoice."""
+        file_id = Path(inv.attachment_name or inv.invoice_number).stem
+        latest: str | None = None
+        for ev in self.store.list_for_run(run_id):
+            if ev.type != EventType.APPROVAL_REQUESTED:
+                continue
+            ctx = ev.payload.get("context") or {}
+            if ctx.get("invoice_number") == inv.invoice_number or ctx.get("file_id") == file_id:
+                aid = str(ev.payload.get("approval_id"))
+                got = self.store.get_approval(aid)
+                if got:
+                    latest = str(got.get("status") or "PENDING")
+        return latest
+
     def _act_on_invoice(
         self, run_id: str, inv: InvoiceRecord, pending_approvals: list[str]
     ) -> InvoiceOutcome:
         assert inv.decision is not None
         decision = inv.decision
+        file_id = Path(inv.attachment_name or inv.invoice_number).stem
         if decision in {
             InvoiceDecision.FLAG_DUPLICATE,
             InvoiceDecision.FLAG_MISMATCH,
@@ -429,22 +464,35 @@ class InvoicePipeline:
         if decision == InvoiceDecision.REFUSE_ESCALATE:
             return InvoiceOutcome.REFUSED
         if decision == InvoiceDecision.FLAG_ASK_HUMAN:
-            ask = self.registry.get("ask_human")
-            res = ask.run(
-                {
-                    "prompt": (
-                        f"No matching PO for {inv.invoice_number} "
-                        f"({inv.vendor}, ${inv.amount}). How to proceed?"
-                    ),
-                    "invoice_number": inv.invoice_number,
-                    "options": ["provide_po", "reject"],
-                }
-            )
-            if self.config.auto_approve is None:
-                pending_approvals.append(str(res.data["approval_id"]))
-                return InvoiceOutcome.NEEDS_ATTENTION
-            # evals: treat as flagged ask
-            return InvoiceOutcome.FLAGGED
+            status = self._approval_status_for(run_id, inv)
+            if status == "APPROVED":
+                return InvoiceOutcome.FLAGGED
+            if status == "REJECTED":
+                return InvoiceOutcome.REFUSED
+            if status == "PENDING" or self.config.auto_approve is None:
+                if status != "PENDING":
+                    ask = self.registry.get("ask_human")
+                    res = ask.run(
+                        {
+                            "prompt": (
+                                f"No matching PO for {inv.invoice_number} "
+                                f"({inv.vendor}, ${inv.amount}). How to proceed?"
+                            ),
+                            "invoice_number": inv.invoice_number,
+                            "file_id": file_id,
+                            "options": ["provide_po", "reject"],
+                        }
+                    )
+                    pending_approvals.append(str(res.data["approval_id"]))
+                else:
+                    for row in self.store.pending_approvals(run_id):
+                        pending_approvals.append(str(row["id"]))
+                if self.config.auto_approve is None:
+                    return InvoiceOutcome.NEEDS_ATTENTION
+            # evals with auto_approve set: treat missing-PO as flagged ask
+            if self.config.auto_approve is not None:
+                return InvoiceOutcome.FLAGGED
+            return InvoiceOutcome.NEEDS_ATTENTION
 
         clearance, rule = self.policy.clearance_for_submit(inv)
         self.store.append(
@@ -461,31 +509,68 @@ class InvoicePipeline:
             return InvoiceOutcome.REFUSED
 
         if clearance.value == "REQUIRE_APPROVAL" or decision == InvoiceDecision.NEEDS_APPROVAL:
-            ask = self.registry.get("ask_human")
-            res = ask.run(
-                {
-                    "prompt": (
-                        f"Approve invoice {inv.invoice_number} for "
-                        f"{inv.canonical_vendor or inv.vendor} amounting ${inv.amount:,.2f}? "
-                        f"Policy: over ${self.policy.threshold:,.0f}."
-                    ),
-                    "invoice_number": inv.invoice_number,
-                    "amount": inv.amount,
-                    "options": ["approve", "reject"],
-                    "requires_portal_submit": True,
-                }
-            )
-            aid = str(res.data["approval_id"])
-            if self.config.auto_approve is True:
-                self._apply_approval(run_id, aid, "approve")
+            status = self._approval_status_for(run_id, inv)
+            if status == "APPROVED" or self.config.auto_approve is True:
+                if status != "APPROVED":
+                    ask = self.registry.get("ask_human")
+                    res = ask.run(
+                        {
+                            "prompt": (
+                                f"Approve invoice {inv.invoice_number} for "
+                                f"{inv.canonical_vendor or inv.vendor} amounting "
+                                f"${inv.amount:,.2f}? Policy: over ${self.policy.threshold:,.0f}."
+                            ),
+                            "invoice_number": inv.invoice_number,
+                            "file_id": file_id,
+                            "amount": inv.amount,
+                            "options": ["approve", "reject"],
+                            "requires_portal_submit": True,
+                        }
+                    )
+                    self._apply_approval(run_id, str(res.data["approval_id"]), "approve")
+                # Irreversible portal write only after clearance
                 return self._browser_submit(run_id, inv)
-            if self.config.auto_approve is False:
-                self._apply_approval(run_id, aid, "reject")
+            if status == "REJECTED" or self.config.auto_approve is False:
+                if status != "REJECTED":
+                    ask = self.registry.get("ask_human")
+                    res = ask.run(
+                        {
+                            "prompt": (
+                                f"Approve invoice {inv.invoice_number} for "
+                                f"{inv.canonical_vendor or inv.vendor} amounting "
+                                f"${inv.amount:,.2f}? Policy: over ${self.policy.threshold:,.0f}."
+                            ),
+                            "invoice_number": inv.invoice_number,
+                            "file_id": file_id,
+                            "amount": inv.amount,
+                            "options": ["approve", "reject"],
+                            "requires_portal_submit": True,
+                        }
+                    )
+                    self._apply_approval(run_id, str(res.data["approval_id"]), "reject")
                 return InvoiceOutcome.REFUSED
-            pending_approvals.append(aid)
-            # Still submit to portal as PENDING_APPROVAL for demo realism when auto path off
-            # Spec: create Approval and stay PENDING_APPROVAL — submit form sets that status
-            return self._browser_submit(run_id, inv)
+            # Pause BEFORE any irreversible write (P4 / P6).
+            if status != "PENDING":
+                ask = self.registry.get("ask_human")
+                res = ask.run(
+                    {
+                        "prompt": (
+                            f"Approve invoice {inv.invoice_number} for "
+                            f"{inv.canonical_vendor or inv.vendor} amounting "
+                            f"${inv.amount:,.2f}? Policy: over ${self.policy.threshold:,.0f}."
+                        ),
+                        "invoice_number": inv.invoice_number,
+                        "file_id": file_id,
+                        "amount": inv.amount,
+                        "options": ["approve", "reject"],
+                        "requires_portal_submit": True,
+                    }
+                )
+                pending_approvals.append(str(res.data["approval_id"]))
+            else:
+                for row in self.store.pending_approvals(run_id):
+                    pending_approvals.append(str(row["id"]))
+            return InvoiceOutcome.NEEDS_ATTENTION
 
         # ALLOW submit
         return self._browser_submit(run_id, inv)
@@ -493,13 +578,19 @@ class InvoicePipeline:
     def _browser_submit(self, run_id: str, inv: InvoiceRecord) -> InvoiceOutcome:
         browser = self.registry.get("browser")
         key = f"{run_id}:{inv.invoice_number}:submit"
-        if self.store.get_idempotent(key):
+        cached_submit = self.store.get_idempotent(key)
+        # Only skip when a prior attempt *succeeded* — failed attempts must be retryable.
+        if cached_submit and cached_submit.get("ok"):
             self.store.append(
                 run_id,
                 EventType.IDEMPOTENCY_SKIP,
                 {"idempotency_key": key},
             )
-            return InvoiceOutcome.COMPLETED
+            return (
+                InvoiceOutcome.COMPLETED
+                if inv.decision == InvoiceDecision.SUBMIT
+                else InvoiceOutcome.NEEDS_ATTENTION
+            )
 
         def do_submit() -> Any:
             return browser.run(
@@ -525,7 +616,33 @@ class InvoicePipeline:
             },
         )
         res = do_submit()
-        if not res.ok and res.failure is not None:
+        if (res.data or {}).get("recovered_from_label"):
+            self.store.append(
+                run_id,
+                EventType.RECOVERY_ATTEMPTED,
+                {
+                    "kind": "UI_CHANGED",
+                    "detail": "label miss → stable #submit-invoice-button",
+                    "idempotency_key": key,
+                },
+            )
+        if not res.ok:
+            # Classify flaky/5xx banners as TRANSIENT so recovery retries.
+            if res.failure is None:
+                res = res.model_copy(
+                    update={
+                        "failure": Failure(
+                            kind=FailureKind.TRANSIENT,
+                            message=str((res.data or {}).get("banner") or "submit failed"),
+                            retryable=True,
+                        )
+                    }
+                )
+            self.store.append(
+                run_id,
+                EventType.RECOVERY_ATTEMPTED,
+                {"kind": res.failure.kind.value, "idempotency_key": key},
+            )
             recovered = self.recovery.handle(
                 key,
                 res.failure,
@@ -551,10 +668,12 @@ class InvoicePipeline:
                 "ok": res.ok,
                 "url": (res.data or {}).get("url"),
                 "banner": (res.data or {}).get("banner"),
+                "recovered_from_label": (res.data or {}).get("recovered_from_label"),
             },
         )
-        self.store.remember_idempotent(key, run_id, {"ok": res.ok})
+        # Persist success only — irreversible writes must not skip after a failed attempt.
         if res.ok:
+            self.store.remember_idempotent(key, run_id, {"ok": True, "terminal": True})
             return (
                 InvoiceOutcome.COMPLETED
                 if inv.decision == InvoiceDecision.SUBMIT
@@ -572,6 +691,12 @@ class InvoicePipeline:
 
     def _repair_missing_submits(self, run_id: str, invoices: list[InvoiceRecord]) -> None:
         for inv in invoices:
+            # Never repair refused/flagged invoices — that would undo policy denial.
+            if inv.outcome in {
+                InvoiceOutcome.REFUSED,
+                InvoiceOutcome.FLAGGED,
+            }:
+                continue
             if inv.decision not in {InvoiceDecision.SUBMIT, InvoiceDecision.NEEDS_APPROVAL}:
                 continue
             api = self.registry.get("portal_api")
@@ -591,9 +716,11 @@ class InvoicePipeline:
         security: list[str] = []
         for inv in invoices:
             outcome = inv.outcome or InvoiceOutcome.NEEDS_ATTENTION
-            verified = False
-            if outcome == InvoiceOutcome.COMPLETED and verification.passed:
-                verified = True
+            # Operator may only report "completed" when the independent verifier passes (SPEC §7).
+            if outcome == InvoiceOutcome.COMPLETED and not verification.passed:
+                outcome = InvoiceOutcome.NEEDS_ATTENTION
+                inv.outcome = outcome
+            verified = outcome == InvoiceOutcome.COMPLETED and verification.passed
             if outcome in {InvoiceOutcome.NEEDS_ATTENTION, InvoiceOutcome.FLAGGED}:
                 needs.append(inv.invoice_number)
             if inv.security_finding:

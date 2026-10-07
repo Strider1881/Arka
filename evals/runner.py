@@ -99,11 +99,17 @@ def run_scenario(scenario: dict[str, Any], *, data_dir: Path) -> dict[str, Any]:
             auto_approve=auto,
             invoice_filter=scenario.get("invoice_filter"),
         )
+        if scenario.get("crash_after_invoices") is not None:
+            cfg.crash_after_invoices = int(scenario["crash_after_invoices"])
         pipe = InvoicePipeline(store, build_default_fake_llm(), cfg)
         t0 = time.monotonic()
-        result = pipe.run(
-            scenario.get("request") or "Process this month's pending vendor invoices."
-        )
+        request = scenario.get("request") or "Process this month's pending vendor invoices."
+        result = pipe.run(request)
+        # Scenario 12: simulated crash mid-EXECUTE, then durable resume.
+        if scenario.get("crash_after_invoices") is not None and result.state.value != "COMPLETE":
+            cfg.crash_after_invoices = None
+            pipe2 = InvoicePipeline(store, build_default_fake_llm(), cfg)
+            result = pipe2.resume(result.run_id)
         wall = time.monotonic() - t0
         metrics = score(
             result,
