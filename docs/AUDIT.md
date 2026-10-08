@@ -1,8 +1,3 @@
----
-cursor:
-  subagentId: "bc-b5472f9b-eda0-5b33-9588-dee9118ee97d"
----
-
 # Engineering audit — CentrAlign Founding Engineer take-home (Arka / Operator)
 
 **Subject:** branch `cursor/p0-scaffold-27a9` · PR https://cursor.com/codebase/sriroop-gadagoju/Arka/pull/1  
