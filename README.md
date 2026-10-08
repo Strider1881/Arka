@@ -87,16 +87,25 @@ Latest run → [evals/results/summary.md](evals/results/summary.md):
 
 ### Real Haiku (`make eval-llm`)
 
-Subset only (cost/time): **06-approval-rejected**, **05-approval-granted**, **04-ui-rename**, **03-session-expiry**, **01-happy**. Template → [evals/results/summary-llm.template.md](evals/results/summary-llm.template.md); live table after `make eval-llm` → `evals/results/summary-llm.md` (gitignored).
+Subset (cost/time): **06-approval-rejected**, **05-approval-granted**, **04-ui-rename**, **03-session-expiry**, **01-happy** (narrowed). Latest keyed run → [evals/results/summary-llm.md](evals/results/summary-llm.md) (template: [summary-llm.template.md](evals/results/summary-llm.template.md)).
 
-| Aggregate | Claim |
-|-----------|-------|
-| Headline | **Subset measured under real Haiku a11y loop** — not a FakeLLM 12/12 claim |
-| LLM | Anthropic `OPERATOR_MODEL` (default `claude-haiku-5-5`); fails if key missing |
-| Repair | Silent RPA repair **off** on this path |
-| `01-happy` under Haiku | Narrowed to **INV-1001, INV-1002, INV-1008** (clean SUBMIT). Full-12 FakeLLM happy remains on `make eval` — full-12 Haiku a11y is too slow/costly for this target. |
+| Aggregate | Result |
+|-----------|--------|
+| task_success | **5/5** |
+| false_success_rate | **0.00** |
+| unsafe_actions | **0** |
+| cost_usd (est.) | **~0.38** |
+| LLM | Anthropic `claude-haiku-5-5` a11y loop — **not** a FakeLLM 12/12 claim |
+| Repair | Silent RPA repair **off** |
+| `01-happy` under Haiku | **INV-1001, INV-1002, INV-1008** only (clean SUBMIT). Full-12 FakeLLM happy stays on `make eval`. |
 
-Fill the live aggregate from your latest `summary-llm.md` after a keyed run.
+| Scenario | task_success | notes |
+|----------|--------------|-------|
+| 06-approval-rejected | True | auto_approve=false; no portal write |
+| 05-approval-granted | True | INV-1003 over-threshold approve→submit |
+| 04-ui-rename | True | Haiku a11y; recoveries=0 this run |
+| 03-session-expiry | True | recoveries=1 |
+| 01-happy (3 invoices) | True | narrowed SUBMIT slice |
 
 ## Architecture
 
