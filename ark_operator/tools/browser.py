@@ -96,14 +96,34 @@ class BrowserTool(BaseTool):
                 self._refs[ref] = el
                 label = text or eid or name or role
                 if tag == "select":
+                    # Do NOT use inner_text (all options concatenated — always starts
+                    # with placeholder "Select…"). Expose selected value so agents can
+                    # confirm select_option succeeded (generic dropdown semantics).
+                    selected_val = ""
+                    selected_label = ""
+                    try:
+                        selected_val = (el.input_value() or "").strip()
+                    except Exception:
+                        selected_val = ""
                     opts: list[str] = []
                     for opt in el.query_selector_all("option"):
                         ov = (opt.get_attribute("value") or "").strip()
                         ol = " ".join((opt.inner_text() or "").split())[:60]
                         if ov or ol:
                             opts.append(f"{ov}:{ol}" if ov else ol)
+                        try:
+                            if opt.is_selected():
+                                selected_label = ol
+                                if not selected_val:
+                                    selected_val = ov
+                        except Exception:
+                            pass
                     opt_s = ",".join(opts[:24])
-                    lines.append(f'[{ref}] select "{label}" id={eid} options=[{opt_s}]')
+                    shown = selected_label or eid or name or "select"
+                    lines.append(
+                        f'[{ref}] select "{shown}" id={eid} '
+                        f"value={selected_val!r} options=[{opt_s}]"
+                    )
                 elif tag == "input":
                     itype = el.get_attribute("type") or "text"
                     val = (el.input_value() if itype != "password" else "")[:80]

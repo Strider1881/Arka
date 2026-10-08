@@ -487,11 +487,19 @@ def scripted_browser_step(variables: dict[str, Any]) -> dict[str, Any]:
         return ""
 
     def field_done(eid: str, expected: str) -> bool:
-        """True when observation shows an input already holds the expected value."""
+        """True when observation shows an input/select already holds the expected value."""
         line = line_for_id(eid)
         if not line or not expected:
             return False
-        return f"value='{expected}'" in line or f'value="{expected}"' in line
+        if f"value='{expected}'" in line or f'value="{expected}"' in line:
+            return True
+        # Selects often use numeric option values; selected label is shown in quotes.
+        if "select " in line and expected in line.split("options=")[0]:
+            # Avoid matching placeholder-only empty selects.
+            if "value=''" in line or 'value=""' in line:
+                return False
+            return True
+        return False
 
     def already_set(eid: str) -> bool:
         return any(

@@ -216,7 +216,18 @@ def test_browser_tool_select_by_label(live_portal: str, tmp_path: Path, monkeypa
                 vendor_ref = line.split("]")[0].lstrip("[")
                 break
         assert vendor_ref
+        # Empty / placeholder select must expose value= (not all-option label dump).
+        before = "\n".join(obs.data.get("elements") or [])
+        vendor_line = next(ln for ln in before.splitlines() if "id=vendor_id" in ln)
+        assert "value=" in vendor_line, vendor_line
+        assert 'value=' in vendor_line
         sel = tool.run({"action": "select", "ref": vendor_ref, "value": "Northwind"})
         assert sel.ok, sel.failure
+        after_blob = "\n".join((sel.data or {}).get("elements") or [])
+        after_line = next(ln for ln in after_blob.splitlines() if "id=vendor_id" in ln)
+        # Selected option value must be visible so agents can confirm the select.
+        assert "value='1'" in after_line or 'value="1"' in after_line, after_line
+        assert "Northwind" in after_line
+        assert not after_line.startswith('[e') or "Select…" not in after_line.split("options=")[0]
     finally:
         tool.close()
