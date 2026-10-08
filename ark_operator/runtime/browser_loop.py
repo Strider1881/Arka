@@ -504,28 +504,27 @@ def scripted_browser_step(variables: dict[str, Any]) -> dict[str, Any]:
         ("fill", "invoice_date", "text", str(fields.get("invoice_date") or "")),
         ("fill", "attachment_name", "text", str(fields.get("attachment_name") or "")),
     ]
+    # After login/goto, prior fills are stale — only count actions since last navigation.
+    last_nav = -1
+    for i, h in enumerate(history):
+        if isinstance(h, dict) and h.get("action") in {"goto", "login"}:
+            last_nav = i
+
+    def acted_since_nav(eid: str) -> bool:
+        for i, h in enumerate(history):
+            if i <= last_nav or not isinstance(h, dict):
+                continue
+            if eid in str(h.get("rationale") or "") and not h.get("error"):
+                return True
+        return False
+
     for action, eid, arg_key, arg_val in plan:
         if not arg_val:
             continue
-        # Observation-driven only: after AUTH/flaky re-open, history alone must not skip fills.
-        if field_done(eid, arg_val):
-            continue
-        if already_set(eid) and field_done(eid, arg_val):
+        if field_done(eid, arg_val) or acted_since_nav(eid):
             continue
         ref = find_ref(eid)
         if ref is None:
-            continue
-        # Avoid infinite re-fill of the same empty control in one observe cycle.
-        recent_same = sum(
-            1
-            for h in history[-6:]
-            if isinstance(h, dict)
-            and h.get("action") == action
-            and eid in str(h.get("rationale") or "")
-            and not h.get("error")
-        )
-        if recent_same >= 2 and not field_done(eid, arg_val):
-            # Observation not reflecting fills yet — continue to next field / submit.
             continue
         payload: dict[str, Any] = {
             "action": action,

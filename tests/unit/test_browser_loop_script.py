@@ -46,7 +46,7 @@ def test_script_fills_then_submits() -> None:
         }
     )
     history: list[dict[str, object]] = []
-    # Simulate observation updating after each successful set (ids stable in this fixture).
+    # Fixture obs does not update values; script uses history-since-nav to advance.
     for _ in range(12):
         choice = scripted_browser_step(
             {
