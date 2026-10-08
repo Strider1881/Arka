@@ -81,9 +81,26 @@
   const es = new EventSource("/runs/{{ run_id }}/events");
   es.onmessage = (ev) => {
     const data = JSON.parse(ev.data);
-    if (data.type === "DONE" || data.type === "INTERPRETATION_CREATED" || data.type === "APPROVAL_REQUESTED" || data.type === "STEP_COMPLETED") {
+    // Reload on progress, human gates, recovery, and terminal states — never sit silent.
+    const refreshTypes = new Set([
+      "DONE",
+      "INTERPRETATION_CREATED",
+      "APPROVAL_REQUESTED",
+      "STEP_STARTED",
+      "STEP_COMPLETED",
+      "STEP_FAILED",
+      "RECOVERY_ATTEMPTED",
+      "RUN_FAILED",
+      "REPORT_CREATED",
+      "STATE_CHANGED",
+    ]);
+    if (refreshTypes.has(data.type)) {
       location.reload();
     }
+  };
+  es.onerror = () => {
+    // If the stream drops mid-run, hard-refresh so a FAILED/COMPLETE page is never missed.
+    setTimeout(() => location.reload(), 3000);
   };
 </script>
 {% endblock %}

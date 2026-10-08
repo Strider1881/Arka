@@ -36,11 +36,13 @@ def get_store() -> EventStore:
 
 def _pipeline_cfg(*, auto_approve: bool | None = None) -> PipelineConfig:
     settings = get_settings()
+    demo = [s.strip() for s in settings.operator_demo_invoices.split(",") if s.strip()]
     return PipelineConfig(
         portal_base_url=settings.portal_base_url,
         data_dir=_data_dir() / "runs",
         headless=settings.operator_headless,
         auto_approve=auto_approve,
+        invoice_filter=demo or None,
     )
 
 

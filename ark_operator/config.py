@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     operator_db_path: str = "data/operator.db"
     operator_data_dir: str = "data/ui"
     operator_headless: bool = True
+    # Comma-separated invoice stems for a short UI/demo slice (empty = all inbox PDFs).
+    operator_demo_invoices: str = ""
     faults: str = ""
     session_expiry_n: int = 5
     log_level: str = "INFO"
