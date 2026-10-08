@@ -322,27 +322,42 @@ class BrowserTool(BaseTool):
                     retryable=True,
                 ),
             )
-        try:
-            el.select_option(value)
-        except Exception:
-            # LLM often passes visible option label; match by contains.
-            matched = False
+        # Agents often paste observation option tokens like "6:Umbrella Corp (ACTIVE)".
+        candidates = [value]
+        if ":" in value:
+            left, right = value.split(":", 1)
+            if left.strip():
+                candidates.append(left.strip())
+            if right.strip():
+                candidates.append(right.strip())
+        matched = False
+        last_err: Exception | None = None
+        for cand in candidates:
+            try:
+                el.select_option(cand)
+                matched = True
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_err = exc
+        if not matched:
+            # Visible option label; match by contains.
             for opt in el.query_selector_all("option"):
                 label = (opt.inner_text() or "").strip()
                 oval = opt.get_attribute("value") or ""
-                if value in label and oval:
+                if any(c and c in label for c in candidates) and oval:
                     el.select_option(oval)
                     matched = True
                     break
-            if not matched:
-                return ToolResult(
-                    ok=False,
-                    failure=Failure(
-                        kind=FailureKind.ELEMENT_NOT_FOUND,
-                        message=f"No option matching {value!r} for {ref}",
-                        retryable=True,
-                    ),
-                )
+        if not matched:
+            return ToolResult(
+                ok=False,
+                failure=Failure(
+                    kind=FailureKind.ELEMENT_NOT_FOUND,
+                    message=f"No option matching {value!r} for {ref}"
+                    + (f" ({last_err})" if last_err else ""),
+                    retryable=True,
+                ),
+            )
         obs = self._observe()
         return ToolResult(
             ok=True, observation=Observation(summary=f"Selected {ref}", data=obs), data=obs

@@ -496,9 +496,7 @@ def scripted_browser_step(variables: dict[str, Any]) -> dict[str, Any]:
         # Selects often use numeric option values; selected label is shown in quotes.
         if "select " in line and expected in line.split("options=")[0]:
             # Avoid matching placeholder-only empty selects.
-            if "value=''" in line or 'value=""' in line:
-                return False
-            return True
+            return not ("value=''" in line or 'value=""' in line)
         return False
 
     def already_set(eid: str) -> bool:
