@@ -1,4 +1,4 @@
-.PHONY: setup portal run test lint eval eval-rpa demo invoices ui
+.PHONY: setup portal run test lint eval eval-llm eval-rpa demo invoices ui
 
 PORTAL_PORT ?= 8765
 OPERATOR_PORT ?= 8877
@@ -50,6 +50,13 @@ lint:
 # Default measured path: FakeLLM scripted a11y browser loop (not RPA shortcut).
 eval:
 	uv run python -m evals.runner
+
+# Real Anthropic Haiku subset (a11y loop). Requires ANTHROPIC_API_KEY in .env.
+# Never falls back to FakeLLM. RPA repair after a11y miss is disabled.
+# Default scenarios: 01-happy 03-session-expiry 04-ui-rename 05/06-approval.
+# Writes evals/results/summary-llm.md (gitignored live run; template committed).
+eval-llm:
+	uv run python -m evals.runner --llm
 
 # Optional micro-benchmark: high-level submit_invoice RPA shortcut.
 eval-rpa:

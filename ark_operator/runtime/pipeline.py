@@ -81,6 +81,9 @@ class PipelineConfig:
     crash_after_invoices: int | None = None
     # None/True = a11y observe→act loop (default measured path). False = RPA shortcut.
     use_browser_loop: bool | None = True
+    # After verifier miss, FakeLLM CI may repair via submit_invoice RPA shortcut.
+    # Real-LLM eval (`make eval-llm`) disables this so failures stay honest.
+    allow_rpa_repair: bool = True
     # Enter CLARIFY when Interpretation.open_questions is non-empty (scenario 11).
     force_clarify: bool = False
 
@@ -1165,6 +1168,17 @@ class InvoicePipeline:
     ) -> None:
         # Repair uses the durable RPA shortcut so a flaky/session-failed a11y attempt
         # can still converge; the measured first pass remains the loop.
+        # Real-LLM eval disables this (allow_rpa_repair=False) — no silent RPA fallback.
+        if not self.config.allow_rpa_repair:
+            self.store.append(
+                run_id,
+                EventType.RECOVERY_ATTEMPTED,
+                {
+                    "kind": "TRANSIENT",
+                    "detail": "rpa repair skipped (allow_rpa_repair=False)",
+                },
+            )
+            return
         prev = self.config.use_browser_loop
         self.config.use_browser_loop = False
         try:

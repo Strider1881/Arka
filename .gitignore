@@ -29,9 +29,10 @@ data/
 test-results/
 playwright-report/
 
-# Eval artifacts (keep summary)
+# Eval artifacts (keep FakeLLM summary + LLM template)
 evals/results/*
 !evals/results/summary.md
+!evals/results/summary-llm.template.md
 
 # OS / editor
 .DS_Store

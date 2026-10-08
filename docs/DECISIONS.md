@@ -73,7 +73,10 @@ Update when a phase introduces a new default.
 | Coverage gate | `make test` enforces ≥88% on policy/fsm/recovery/idempotency/verify/events |
 | FakeLLM boundary | Scripts understand/plan **structure** only; never policy, portal writes, or verify |
 | Settings source | `get_settings()` loads repo-root `.env` + process env; CLI/UI/secrets/redact use it |
-| Real-LLM P4 proof | `tests/integration/test_real_llm_p4.py` (skip without key); evals stay FakeLLM |
+| Real-LLM P4 proof | `tests/integration/test_real_llm_p4.py` (skip without key) |
+| Dual eval targets | `make eval` = FakeLLM 12/12 CI; `make eval-llm` = real Haiku subset (happy / session / ui-rename / approval±) via `evals.runner --llm`. No FakeLLM fallback; exits 2 if key missing. |
+| RPA repair on eval-llm | `PipelineConfig.allow_rpa_repair=False` for real-LLM eval so verifier misses are not silently healed by `submit_invoice`. FakeLLM CI still allows repair. |
+| eval-llm artifacts | Live `evals/results/summary-llm.md` gitignored; committed template `summary-llm.template.md`. |
 | Budget partial exit | `EXECUTE → REPORT` legal for honest partial report when budgets exhaust |
 | Per-invoice sub-plans | Emitted as `PLAN_CREATED` (`kind=invoice_subplan`) after policy decision |
 | Approval card context | AskHuman context carries vendor/amount/PO/risk/policy_cited for UI |

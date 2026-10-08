@@ -131,9 +131,22 @@ def cmd_replay(args: argparse.Namespace) -> int:
 
 
 def cmd_eval(args: argparse.Namespace) -> int:
-    from evals.runner import run_all
+    from evals.runner import DEFAULT_LLM_SCENARIOS, _require_anthropic_key, run_all
 
-    results = run_all(only=args.only, use_browser_loop=not args.rpa)
+    if getattr(args, "llm", False):
+        if args.rpa:
+            print("ERROR: --llm implies a11y loop; do not combine with --rpa.", file=sys.stderr)
+            return 2
+        _require_anthropic_key()
+        only = args.only if args.only else list(DEFAULT_LLM_SCENARIOS)
+        results = run_all(
+            only=only,
+            use_browser_loop=True,
+            real_llm=True,
+            retries=1,
+        )
+    else:
+        results = run_all(only=args.only, use_browser_loop=not args.rpa, real_llm=False)
     ok = all(r["task_success"] for r in results)
     return 0 if ok else 1
 
@@ -175,6 +188,11 @@ def main(argv: list[str] | None = None) -> int:
     p_ev = sub.add_parser("eval", help="Run evals (default: a11y browser loop)")
     p_ev.add_argument("--only", nargs="*")
     p_ev.add_argument("--rpa", action="store_true", help="Use RPA shortcut path")
+    p_ev.add_argument(
+        "--llm",
+        action="store_true",
+        help="Real Anthropic Haiku subset (requires ANTHROPIC_API_KEY; no FakeLLM)",
+    )
     p_ev.set_defaults(func=cmd_eval)
 
     args = parser.parse_args(argv)
