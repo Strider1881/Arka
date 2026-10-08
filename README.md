@@ -79,7 +79,7 @@ Latest run → [evals/results/summary.md](evals/results/summary.md):
 | 01-happy | No faults (all 12 invoices) |
 | 02-latency-flaky | flaky_500 recoveries |
 | 03-session-expiry | Mid-run session invalidation |
-| 04-ui-rename | Label miss → stable id re-resolve |
+| 04-ui-rename | Label miss → re-observe → re-choose (a11y) |
 | 05 / 06 | Approval granted / rejected |
 | 07 / 08 | Duplicate / amount mismatch |
 | 09 / 10 | Blocked vendor / PDF injection |

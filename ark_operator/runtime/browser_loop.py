@@ -200,40 +200,28 @@ class BrowserLoop:
                 and result.failure is not None
                 and result.failure.kind == FailureKind.ELEMENT_NOT_FOUND
                 and choice.action == "click"
-                and self.prefer_label_first
             ):
-                # Learning lever: role/name/label miss → re-resolve stable id (SPEC §6.6).
-                fallback = self._reresolve_and_click_submit()
-                if fallback.ok:
-                    recovered_from_label = True
-                    self.store.append(
-                        self.run_id,
-                        EventType.RECOVERY_ATTEMPTED,
-                        {
-                            "kind": "UI_CHANGED",
-                            "detail": (
-                                "label/role miss → re-resolve "
-                                "role/name/label → #submit-invoice-button"
-                            ),
-                            "idempotency_key": idempotency_key,
-                        },
-                        step_id=step_id,
-                    )
-                    result = fallback
-                else:
-                    fail = result.failure
-                    assert fail is not None
-                    handled = self.recovery.handle(
-                        f"{idempotency_key}:{choice.action}",
-                        fail,
-                        retry=call,
-                        relogin=lambda: self.browser.run({"action": "login"}),
-                    )
-                    if isinstance(handled, ToolResult):
-                        result = handled
-                    else:
-                        history[-1]["error"] = handled.message
-                        continue
+                # SPEC §6.5–6.7: do NOT hardcode an alternate selector. Record the miss,
+                # re-observe the a11y tree on the next loop iteration, and let browser_step
+                # choose a different action from the fresh observation.
+                history[-1]["error"] = result.failure.message
+                self.store.append(
+                    self.run_id,
+                    EventType.RECOVERY_ATTEMPTED,
+                    {
+                        "kind": "UI_CHANGED",
+                        "detail": (
+                            "label/role miss → re-observe a11y tree and re-choose "
+                            "via browser_step (no hardcoded re-resolve click)"
+                        ),
+                        "idempotency_key": idempotency_key,
+                        "failed_action": choice.action,
+                        "failed_ref": choice.ref,
+                        "failed_rationale": choice.rationale,
+                    },
+                    step_id=step_id,
+                )
+                continue
             elif not result.ok and result.failure is not None:
                 fail = result.failure
                 if fail.kind == FailureKind.AUTH_EXPIRED:
@@ -309,6 +297,14 @@ class BrowserLoop:
                             recovered_from_label=recovered_from_label,
                         )
                     continue
+
+            # A later successful click after an ELEMENT_NOT_FOUND click counts as
+            # label→adapt recovery for plan revision / episodic learning.
+            if result.ok and choice.action == "click" and any(
+                isinstance(h, dict) and h.get("action") == "click" and h.get("error")
+                for h in history[:-1]
+            ):
+                recovered_from_label = True
 
             ev = list((result.data or {}).get("evidence") or [])
             evidence.extend(str(x) for x in ev)

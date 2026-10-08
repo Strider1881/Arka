@@ -955,7 +955,9 @@ class InvoicePipeline:
                     EventType.RECOVERY_ATTEMPTED,
                     {
                         "kind": "UI_CHANGED",
-                        "detail": "label/role miss → #submit-invoice-button",
+                        "detail": (
+                            "label/role miss → re-observe a11y and re-choose via browser_step"
+                        ),
                         "idempotency_key": key,
                     },
                 )
