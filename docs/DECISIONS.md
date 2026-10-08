@@ -71,15 +71,15 @@ Update when a phase introduces a new default.
 | Verifier isolation | Fresh Playwright context in a worker thread + fresh portal_api (no shared cookies) |
 | Security center | `security/envelope.py` + `security/redact.py` — EventStore append always redacts |
 | Coverage gate | `make test` enforces ≥88% on policy/fsm/recovery/idempotency/verify/events |
-| FakeLLM boundary | Scripts understand/plan **structure** only; never policy, portal writes, or verify |
+| FakeLLM boundary | Scripts understand/plan **structure**; `scripted_browser_step` **does** drive portal writes on the a11y loop; `invoice_extract` is also scripted. Policy decisions and verify never FakeLLM. |
 | Settings source | `get_settings()` loads repo-root `.env` + process env; CLI/UI/secrets/redact use it |
 | Real-LLM P4 proof | `tests/integration/test_real_llm_p4.py` (skip without key) |
 | Dual eval targets | `make eval` = FakeLLM 12/12 CI; `make eval-llm` = real Haiku subset (approval± / ui-rename / session / narrowed happy) via `evals.runner --llm`. No FakeLLM fallback; exits 2 if key missing. |
 | eval-llm happy filter | Real-LLM `01-happy` uses `INV-1001/1002/1008` only — full-12 Haiku a11y is too slow/costly; FakeLLM happy still processes all 12. |
-| RPA repair on eval-llm | `PipelineConfig.allow_rpa_repair=False` for real-LLM eval so verifier misses are not silently healed by `submit_invoice`. FakeLLM CI still allows repair. |
+| RPA repair off on a11y eval | `allow_rpa_repair=False` for `make eval` and `make eval-llm` (a11y measured path). Only `make eval-rpa` may enable RPA heal (`allow_rpa_repair=not use_browser_loop` in `evals/runner.py`). |
 | eval-llm artifacts | Live `evals/results/summary-llm.md` gitignored; committed template `summary-llm.template.md`. |
 | Budget partial exit | `EXECUTE → REPORT` legal for honest partial report when budgets exhaust |
-| Per-invoice sub-plans | Emitted as `PLAN_CREATED` (`kind=invoice_subplan`) after policy decision |
+| Per-invoice sub-plans | Emitted as `PLAN_CREATED` (`kind=invoice_subplan`) **after** policy decision — mirror/dispatch shape, not discovery. Top-level plan is structural/logging only. |
 | Approval card context | AskHuman context carries vendor/amount/PO/risk/policy_cited for UI |
 | Verifier browser scrape | Isolated Playwright scrapes invoice table text; API remains structured GT |
 | Episodic distill | Lessons derived from `RECOVERY_ATTEMPTED` / security findings, not hardcoded-only |
@@ -96,6 +96,6 @@ Update when a phase introduces a new default.
 | Coverage gate | Includes `pipeline`, `browser_loop`, `stall_detector`, `plan_revision`, `episodic`, `lesson_policy`, `pdf_extract` — not omit-gamed away. |
 | CI | `.github/workflows/ci.yml` runs `make lint && make test && make eval`. |
 | BrowserLoop ownership | `runtime/browser_loop.py` + `Executor.run_browser_submit`; pipeline clearance / `IrreversibleLedger` / recovery / verifier unchanged |
-| Observation-driven PLAN_REVISED | `runtime/plan_revision.py` emits reason + next_steps on UI_RENAME / WRONG_PAGE / MISSING_PO / AUTH_EXPIRED (not cosmetic description tweaks) |
+| Observation-driven PLAN_REVISED | `runtime/plan_revision.py` emits reason + next_steps on UI_RENAME / WRONG_PAGE / MISSING_PO / AUTH_EXPIRED. Revised args (`prefer_stable_ids`, `relogin_on_auth_expired`, `recover_wrong_page` / `goto`) are consumed via `browser_prefs_from_plan` → pipeline browser setup / `BrowserLoop`. |
 | Details observability | `LLM_USAGE` events + Details usage summary (tokens/cost/tool calls/plan revisions); main path stays Handoff→Work→Proof |
-| UI re-resolve | `BrowserTool.re_resolve` / `click_submit_resolved`: role → name/label → stable `#submit-invoice-button`; episodic lessons flip `prefer_label_first` |
+| UI re-resolve | `BrowserTool.re_resolve` / `click_submit_resolved`: role → name/label → stable `#submit-invoice-button`; episodic lessons and PLAN_REVISED `prefer_stable_ids` flip `prefer_label_first` |

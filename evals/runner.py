@@ -196,8 +196,9 @@ def run_scenario(
             auto_approve=auto,
             invoice_filter=invoice_filter,
             use_browser_loop=use_browser_loop,
-            # Real-LLM path: no silent RPA repair after a11y miss.
-            allow_rpa_repair=not real_llm,
+            # a11y measured path (make eval / eval-llm): never silent RPA heal.
+            # RPA repair only when already on the optional shortcut path (make eval-rpa).
+            allow_rpa_repair=not use_browser_loop,
             force_clarify=bool(scenario.get("clarify", False)),
         )
         if scenario.get("crash_after_invoices") is not None:
@@ -328,6 +329,14 @@ def _write_summary(
         lines.extend(
             [
                 "No FakeLLM. RPA repair after a11y miss is **disabled** on this path.",
+                "",
+            ]
+        )
+    elif use_browser_loop:
+        lines.extend(
+            [
+                "FakeLLM a11y path. RPA repair after a11y miss is **disabled** "
+                "(`allow_rpa_repair=False`). Use `make eval-rpa` for the shortcut path.",
                 "",
             ]
         )

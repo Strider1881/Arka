@@ -26,7 +26,9 @@ stateDiagram-v2
     EXECUTE --> ESCALATED
 ```
 
-**Single control plane:** `InvoicePipeline` owns all phases via `StateMachine` / FSM. `Orchestrator.start()` only allocates `run_id`. Per-invoice sub-plans drive `_act_on_invoice` (browser / ask_human steps).
+**Single control plane:** `InvoicePipeline` owns all phases via `StateMachine` / FSM. `Orchestrator.start()` only allocates `run_id`.
+
+**Plans vs procedure:** The top-level LLM plan is structural/logging (`PLAN_CREATED`); EXECUTE does **not** walk those steps. The invoice procedure in `InvoicePipeline._execute` loads PDFs, runs `PolicyEngine.decide_invoice`, then builds a per-invoice sub-plan that **mirrors** the decision already taken. `_act_on_invoice` dispatches on sub-plan step tools (browser submit / ask_human) — enum-shaped dispatch, not a general plan executor.
 
 ## Event sourcing
 
@@ -64,10 +66,10 @@ flowchart LR
 
 | Path | Trigger | Writes |
 |------|---------|--------|
-| **a11y loop (default)** | `make eval`, `use_browser_loop=True` | One LLM-chosen action at a time (`scripted_browser_step` under FakeLLM) |
+| **a11y loop (default)** | `make eval` / `make eval-llm`, `use_browser_loop=True` | One action at a time (`scripted_browser_step` under FakeLLM; model under Haiku). RPA repair after miss is **off**. |
 | RPA shortcut (optional) | `make eval-rpa` / `--no-browser-loop` | High-level `submit_invoice` (still real Playwright) |
 
-Clearance + `IrreversibleLedger` + independent verifier wrap **both** paths. Policy/verify never go through FakeLLM.
+Clearance + `IrreversibleLedger` + independent verifier wrap **both** paths. Policy/verify never go through FakeLLM. FakeLLM **does** drive portal writes on the a11y path via `scripted_browser_step`.
 
 ## Package map
 - `ark_operator/runtime` — pipeline (phases), browser_loop, recovery, budgets, stall, plan_revision

@@ -46,6 +46,7 @@ from ark_operator.runtime.plan_revision import (
     AUTH_EXPIRED,
     Contradiction,
     apply_revision,
+    browser_prefs_from_plan,
     detect_from_browser_observation,
     detect_missing_po,
     propose_revision,
@@ -81,9 +82,10 @@ class PipelineConfig:
     crash_after_invoices: int | None = None
     # None/True = a11y observe→act loop (default measured path). False = RPA shortcut.
     use_browser_loop: bool | None = True
-    # After verifier miss, FakeLLM CI may repair via submit_invoice RPA shortcut.
-    # Real-LLM eval (`make eval-llm`) disables this so failures stay honest.
-    allow_rpa_repair: bool = True
+    # After verifier miss, optionally heal via submit_invoice RPA shortcut.
+    # Default False: a11y measured path (make eval / eval-llm) must not silent-heal.
+    # Enable only for make eval-rpa (shortcut path) when needed.
+    allow_rpa_repair: bool = False
     # Enter CLARIFY when Interpretation.open_questions is non-empty (scenario 11).
     force_clarify: bool = False
 
@@ -133,6 +135,8 @@ class InvoicePipeline:
         self._plan: Plan | None = None
         self._invoice_subplan: Plan | None = None
         self._recovery_count = 0
+        # Runtime prefs consumed from PLAN_REVISED step args (prefer_stable_ids, …).
+        self._plan_browser_prefs: dict[str, Any] = {}
 
     def _setup_tools(self, run_id: str, *, prefer_label_first: bool = False) -> None:
         creds = portal_operator_credentials()
@@ -311,6 +315,7 @@ class InvoicePipeline:
                     EventType.PLAN_REVISED,
                     revision_event_payload(plan, proposal),
                 )
+                self._apply_plan_browser_prefs(plan)
             self._plan = plan
             go(RunState.EXECUTE)
         elif fsm.state == RunState.AWAIT_APPROVAL:
@@ -901,7 +906,11 @@ class InvoicePipeline:
         """One a11y action at a time (SPEC §6.5–6.7) via Executor + BrowserLoop."""
         from ark_operator.runtime.executor import Executor
 
-        prefer_label = bool(getattr(self._browser, "prefer_label_first", False))
+        prefer_label = self._effective_prefer_label_first()
+        prefs = self._plan_browser_prefs
+        relogin = bool(prefs.get("relogin_on_auth_expired", True))
+        recover_page = bool(prefs.get("recover_wrong_page", True))
+        recover_goto = str(prefs.get("recover_goto") or "/invoices/submit")
         executor = Executor(
             self.store,
             self.registry,
@@ -920,6 +929,8 @@ class InvoicePipeline:
                 "action": "a11y_loop",
                 "invoice_number": inv.invoice_number,
                 "idempotency_key": key,
+                "prefer_label_first": prefer_label,
+                "plan_prefs": dict(prefs),
             },
         )
         loop_res = executor.run_browser_submit(
@@ -927,6 +938,9 @@ class InvoicePipeline:
             step_id=f"{inv.invoice_number}:submit",
             idempotency_key=key,
             prefer_label_first=prefer_label,
+            relogin_on_auth_expired=relogin,
+            recover_wrong_page=recover_page,
+            recover_goto=recover_goto,
         )
         if loop_res.recovered_from_label:
             self._recovery_count += 1
@@ -1154,6 +1168,28 @@ class InvoicePipeline:
             EventType.PLAN_REVISED,
             revision_event_payload(revised, proposal),
         )
+        # Consume revised step args (prefer_stable_ids, relogin, wrong-page) into runtime.
+        self._apply_plan_browser_prefs(revised)
+
+    def _apply_plan_browser_prefs(self, plan: Plan) -> None:
+        """Wire PLAN_REVISED args into browser setup for subsequent submits."""
+        prefs = browser_prefs_from_plan(plan)
+        if not prefs:
+            return
+        self._plan_browser_prefs.update(prefs)
+        if self._browser is not None and "prefer_label_first" in prefs:
+            self._browser.prefer_label_first = bool(prefs["prefer_label_first"])
+
+    def _effective_prefer_label_first(self) -> bool:
+        """Plan revision prefer_stable_ids wins over lesson/tool default."""
+        if "prefer_label_first" in self._plan_browser_prefs:
+            return bool(self._plan_browser_prefs["prefer_label_first"])
+        if self._plan is not None:
+            prefs = browser_prefs_from_plan(self._plan)
+            if "prefer_label_first" in prefs:
+                self._plan_browser_prefs.update(prefs)
+                return bool(prefs["prefer_label_first"])
+        return bool(getattr(self._browser, "prefer_label_first", False))
 
     def _apply_approval(self, run_id: str, approval_id: str, decision: str) -> None:
         info = self.store.decide_approval(approval_id, decision, decided_by="eval-auto")
@@ -1166,9 +1202,8 @@ class InvoicePipeline:
     def _repair_missing_submits(
         self, run_id: str, invoices: list[InvoiceRecord], ledger: IrreversibleLedger
     ) -> None:
-        # Repair uses the durable RPA shortcut so a flaky/session-failed a11y attempt
-        # can still converge; the measured first pass remains the loop.
-        # Real-LLM eval disables this (allow_rpa_repair=False) — no silent RPA fallback.
+        # Optional RPA heal after verifier miss. Off by default / on make eval so the
+        # a11y measured path cannot silent-heal. make eval-rpa may enable this.
         if not self.config.allow_rpa_repair:
             self.store.append(
                 run_id,

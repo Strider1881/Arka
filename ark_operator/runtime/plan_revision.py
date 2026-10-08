@@ -257,4 +257,22 @@ def revision_event_payload(plan: Plan, proposal: RevisionProposal) -> dict[str, 
         "invoice_number": proposal.invoice_number,
         "changes": proposal.changes,
         "steps": [s.model_dump(mode="json") for s in plan.steps],
+        "browser_prefs": browser_prefs_from_plan(plan),
     }
+
+
+def browser_prefs_from_plan(plan: Plan) -> dict[str, Any]:
+    """Extract runtime browser prefs from revised plan step args (consumed by pipeline)."""
+    prefs: dict[str, Any] = {}
+    for step in plan.steps:
+        args = step.args or {}
+        if args.get("prefer_stable_ids") is True or args.get("ui_resolve") == "id_first":
+            prefs["prefer_stable_ids"] = True
+            prefs["prefer_label_first"] = False
+        if args.get("relogin_on_auth_expired") is True:
+            prefs["relogin_on_auth_expired"] = True
+        if args.get("recover_wrong_page") is True:
+            prefs["recover_wrong_page"] = True
+            if args.get("goto"):
+                prefs["recover_goto"] = str(args["goto"])
+    return prefs

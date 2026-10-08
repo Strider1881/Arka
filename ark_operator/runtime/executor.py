@@ -55,6 +55,9 @@ class Executor:
         idempotency_key: str,
         prefer_label_first: bool = False,
         max_actions: int = 30,
+        relogin_on_auth_expired: bool = True,
+        recover_wrong_page: bool = True,
+        recover_goto: str = "/invoices/submit",
     ) -> BrowserLoopResult:
         """LLM chooses one a11y action at a time until invoice submit postcondition."""
         if self.llm is None:
@@ -72,6 +75,9 @@ class Executor:
             budgets=self.budgets,
             max_actions=max_actions,
             prefer_label_first=prefer_label_first,
+            relogin_on_auth_expired=relogin_on_auth_expired,
+            recover_wrong_page=recover_wrong_page,
+            recover_goto=recover_goto,
         )
         return loop.run_submit(fields, step_id=step_id, idempotency_key=idempotency_key)
 

@@ -41,6 +41,10 @@ class BrowserLoop:
     budgets: Budgets
     max_actions: int = 20
     prefer_label_first: bool = False
+    # Consumed from PLAN_REVISED args (defaults preserve prior always-on recovery).
+    relogin_on_auth_expired: bool = True
+    recover_wrong_page: bool = True
+    recover_goto: str = "/invoices/submit"
 
     def run_submit(
         self, fields: dict[str, Any], *, step_id: str, idempotency_key: str
@@ -251,18 +255,23 @@ class BrowserLoop:
                         step_id=step_id,
                     )
                     # Re-open submit form after flaky JSON 500 wiped the page.
-                    self.browser.run({"action": "goto", "url": "/invoices/submit"})
+                    if self.recover_wrong_page:
+                        self.browser.run({"action": "goto", "url": self.recover_goto})
                 handled = self.recovery.handle(
                     f"{idempotency_key}:{choice.action}",
                     fail,
                     retry=call,
-                    relogin=lambda: self.browser.run({"action": "login"}),
+                    relogin=(
+                        (lambda: self.browser.run({"action": "login"}))
+                        if self.relogin_on_auth_expired
+                        else None
+                    ),
                 )
                 if isinstance(handled, ToolResult):
                     result = handled
                     # After AUTH recovery, force a fresh submit form navigation next loop.
-                    if fail.kind == FailureKind.AUTH_EXPIRED:
-                        self.browser.run({"action": "goto", "url": "/invoices/submit"})
+                    if fail.kind == FailureKind.AUTH_EXPIRED and self.recover_wrong_page:
+                        self.browser.run({"action": "goto", "url": self.recover_goto})
                         history[-1]["recovered"] = "AUTH_EXPIRED"
                         continue
                     if fail.kind == FailureKind.TRANSIENT and not result.ok:

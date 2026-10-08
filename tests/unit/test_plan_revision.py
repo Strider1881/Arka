@@ -10,6 +10,7 @@ from ark_operator.runtime.plan_revision import (
     UI_RENAME,
     WRONG_PAGE,
     apply_revision,
+    browser_prefs_from_plan,
     detect_from_browser_observation,
     detect_missing_po,
     propose_revision,
@@ -48,10 +49,14 @@ def test_detect_ui_rename_from_label_recovery() -> None:
     revised = apply_revision(_base_plan(), prop)
     assert revised.revision == 1
     assert revised.steps[0].args.get("prefer_stable_ids") is True
+    prefs = browser_prefs_from_plan(revised)
+    assert prefs.get("prefer_stable_ids") is True
+    assert prefs.get("prefer_label_first") is False
     payload = revision_event_payload(revised, prop)
     assert payload["reason"]
     assert payload["next_steps"]
     assert payload["kind"] == UI_RENAME
+    assert payload["browser_prefs"].get("prefer_stable_ids") is True
 
 
 def test_detect_wrong_page_still_on_submit() -> None:
@@ -66,6 +71,9 @@ def test_detect_wrong_page_still_on_submit() -> None:
     assert any("goto" in s.lower() or "submit" in s.lower() for s in prop.next_steps)
     revised = apply_revision(_base_plan(), prop)
     assert revised.steps[0].args.get("recover_wrong_page") is True
+    prefs = browser_prefs_from_plan(revised)
+    assert prefs.get("recover_wrong_page") is True
+    assert prefs.get("recover_goto") == "/invoices/submit"
 
 
 def test_detect_auth_expired_on_login_url() -> None:
@@ -76,6 +84,7 @@ def test_detect_auth_expired_on_login_url() -> None:
     assert any("login" in s.lower() for s in prop.next_steps)
     revised = apply_revision(_base_plan(), prop)
     assert revised.steps[0].args.get("relogin_on_auth_expired") is True
+    assert browser_prefs_from_plan(revised).get("relogin_on_auth_expired") is True
 
 
 def test_detect_missing_po_inserts_ask_step() -> None:

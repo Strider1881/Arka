@@ -28,11 +28,11 @@ Two eval targets — do not conflate them:
 | Path | When | Browser writes |
 |------|------|----------------|
 | **a11y loop (default)** | `make eval` / `make eval-llm`, CLI/UI default | Observe compact a11y tree → LLM picks **one** action → tool → repeat until postcondition |
-| **RPA shortcut (optional)** | `make eval-rpa` / `--no-browser-loop` | High-level `submit_invoice` (still real Playwright) — micro-benchmark; FakeLLM CI may still repair via RPA after an a11y miss — **not** on `eval-llm` |
+| **RPA shortcut (optional)** | `make eval-rpa` / `--no-browser-loop` | High-level `submit_invoice` (still real Playwright) — micro-benchmark only; **not** the measured a11y path |
 
 Policy decisions and verification are **never** FakeLLM. DesktopTool remains **STUB**.
 
-**Runtime:** `InvoicePipeline` owns phases end-to-end (FSM). `Orchestrator` allocates `run_id` only.
+**Runtime:** `InvoicePipeline` owns phases end-to-end (FSM). `Orchestrator` allocates `run_id` only. Top-level LLM plans are structural/logging; EXECUTE follows the invoice procedure. Per-invoice sub-plans mirror `PolicyEngine` decisions (browser / ask_human dispatch), they do not discover policy.
 
 ## Quickstart
 
@@ -118,8 +118,9 @@ Package: **`ark_operator/`** (SPEC `operator/` renamed — stdlib clash). Event-
 
 ## Limitations (honest)
 
-- Invoice **decisions** remain deterministic `PolicyEngine` (LLM owns understand/plan/browser_step/invoice_extract structure).
+- Invoice **decisions** remain deterministic `PolicyEngine` (LLM owns understand/plan structure, `browser_step` actions, and `invoice_extract` structuring). Under FakeLLM, `scripted_browser_step` **does** drive portal writes via the a11y loop — predetermined, observation-reactive, not model judgment.
+- Top-level plans are logged (`PLAN_CREATED`); they do not schedule EXECUTE. Sub-plans encode the policy decision already taken.
 - DesktopTool **STUB** — no general computer-use / vision fallback.
 - Full 12-scenario **real-Haiku** eval every CI run is cost-prohibitive; CI uses FakeLLM (`make eval`). `make eval-llm` covers a keyed Haiku **subset** only — do not market FakeLLM 12/12 as a real-model score.
-- On FakeLLM CI, repair after a hard a11y miss may use the RPA shortcut once; the measured first pass is the loop. `make eval-llm` disables that repair.
+- RPA repair after an a11y miss is **off** on `make eval` and `make eval-llm` (`allow_rpa_repair=False`). Optional on `make eval-rpa` only.
 - Multi-tenant SaaS / embeddings-required memory — explicit non-goals.

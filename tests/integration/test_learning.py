@@ -44,6 +44,7 @@ def test_second_run_fewer_recoveries_with_lessons(
                 auto_approve=True,
                 invoice_filter=["INV-1012"],
                 use_browser_loop=use_loop,
+                allow_rpa_repair=False,
             )
             pipe = InvoicePipeline(store, build_default_fake_llm(), cfg, episodic=episodic)
             result = pipe.run("Process invoices")
