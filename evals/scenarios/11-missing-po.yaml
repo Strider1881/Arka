@@ -2,6 +2,8 @@ id: 11-missing-po
 name: Missing PO ask human
 faults: []
 auto_approve: true
+# Consequential CLARIFY path: open question before plan/execute.
+clarify: true
 invoice_filter:
 - INV-1006
 request: Process this month's pending vendor invoices.

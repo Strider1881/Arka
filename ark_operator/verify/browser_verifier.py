@@ -152,7 +152,8 @@ class BrowserVerifier:
                     )
             criteria.extend(check_invoice_against_portal(inv, portal_row, all_rows_for_number=rows))
 
-            # Observability: isolated browser scrape vs API (API remains authoritative).
+            # Submit-class: isolated browser scrape is a hard criterion (SPEC §7).
+            # API remains structured GT; scrape miss fails the run when API has the row.
             if (
                 portal_row is not None
                 and inv.decision
@@ -167,13 +168,12 @@ class BrowserVerifier:
                 criteria.append(
                     CriterionResult(
                         name=f"browser_sees_{needle}",
-                        # Soft check — never fails the run; proves scrape ran in isolation.
-                        passed=True,
+                        passed=browser_hit,
                         detail=(
                             "isolated browser lists invoice"
                             if browser_hit
                             else (
-                                "browser scrape empty/miss (API authoritative); "
+                                "browser scrape miss for submit-class invoice; "
                                 f"rows={len(self.browser_rows)}"
                             )
                         ),

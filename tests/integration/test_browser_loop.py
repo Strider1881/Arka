@@ -142,7 +142,11 @@ def test_real_haiku_a11y_browser_loop(
 
         clear_settings_cache()
         assert get_settings().portal_operator_password == "test-operator"
-        httpx.post(f"{live_portal}/admin/reset", timeout=10)
+        httpx.post(
+            f"{live_portal}/admin/reset",
+            headers={"x-portal-admin-token": "test-admin-token"},
+            timeout=10,
+        )
         # Confirm master data readable before spending Haiku tokens.
         probe = PortalApiTool(live_portal, email="operator@acmecorp.test", password="test-operator")
         try:

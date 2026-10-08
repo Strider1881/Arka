@@ -80,7 +80,17 @@ Update when a phase introduces a new default.
 | Verifier browser scrape | Isolated Playwright scrapes invoice table text; API remains structured GT |
 | Episodic distill | Lessons derived from `RECOVERY_ATTEMPTED` / security findings, not hardcoded-only |
 | Evidence on Proof | `collect_run_evidence` + sandboxed `/runs/{id}/evidence?path=` under data dir |
-| Browser dual path | **Real Haiku / `use_browser_loop=True`**: observe a11y → LLM picks one action (`browser_step`) → tool → until postcondition. **FakeLLM CI default**: high-level `submit_invoice` shortcut (still real Playwright writes) for eval speed/cost. Auto: AnthropicClient → loop; FakeLLM → shortcut. Documented in README + ARCHITECTURE + gap-matrix / browser-loop-pass. |
+| Browser dual path | **Default measured path = a11y loop** (`make eval`, `use_browser_loop=True`): observe → `browser_step` → tool. FakeLLM uses `scripted_browser_step`. **Optional** RPA shortcut via `make eval-rpa` / `--no-browser-loop`. |
+| Single runtime | **`InvoicePipeline` owns phases**; `Orchestrator` only allocates `run_id`. Scripted orchestrator handlers are test helpers, not the hiring demo path. |
+| CLARIFY | Wired for consequential open questions (scenario 11 `clarify: true`); FSM allows `AWAIT_APPROVAL → PLAN` to resume after clarify pause. |
+| PDF extraction | LLM-structured `invoice_extract` with per-field confidence; low confidence → one re-extract; still low → `ask_human` signal. Regex remains fallback. |
+| Verifier scrape | Submit-class `browser_sees_*` **hard-fails** when isolated scrape misses the invoice number (API still structured GT). |
+| Episodic distill | Event-conditioned over `RECOVERY_ATTEMPTED` / failures only — **no baseline boilerplate**. Selector strategy from lesson **content** (`lesson_policy.py`). |
+| Portal admin | `/admin/faults` requires auth (manager session, any session if no token, or `PORTAL_ADMIN_TOKEN`). Passwords stored as PBKDF2 hashes. |
+| CLI approve | SPEC shape `operator approve <run_id> --step <id>`; legacy bare `approval_id` still accepted (documented here). |
+| `make demo` | Headless 90s story: ui_rename recovery + approval pause/seeded decide + verifier sabotage + proof. |
+| Coverage gate | Includes `pipeline`, `browser_loop`, `stall_detector`, `plan_revision`, `episodic`, `lesson_policy`, `pdf_extract` — not omit-gamed away. |
+| CI | `.github/workflows/ci.yml` runs `make lint && make test && make eval`. |
 | BrowserLoop ownership | `runtime/browser_loop.py` + `Executor.run_browser_submit`; pipeline clearance / `IrreversibleLedger` / recovery / verifier unchanged |
 | Observation-driven PLAN_REVISED | `runtime/plan_revision.py` emits reason + next_steps on UI_RENAME / WRONG_PAGE / MISSING_PO / AUTH_EXPIRED (not cosmetic description tweaks) |
 | Details observability | `LLM_USAGE` events + Details usage summary (tokens/cost/tool calls/plan revisions); main path stays Handoff→Work→Proof |

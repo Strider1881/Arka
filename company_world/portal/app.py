@@ -144,12 +144,14 @@ def create_app(*, reset_db: bool = True) -> FastAPI:
         email: str = Form(...),
         password: str = Form(...),
     ) -> Response:
+        from company_world.portal.passwords import verify_password
+
         with get_conn() as conn:
             row = conn.execute(
                 "SELECT email, password, display_name, role FROM users WHERE email = ?",
                 (email.strip().lower(),),
             ).fetchone()
-        if not row or row["password"] != password:
+        if not row or not verify_password(password, str(row["password"])):
             return render(
                 request,
                 "login.html",
@@ -451,12 +453,36 @@ def create_app(*, reset_db: bool = True) -> FastAPI:
 
     # --- Admin / API helpers (faults + read-only JSON for verifier later) ---
 
+    def _admin_authorized(request: Request) -> bool:
+        """Require manager session OR PORTAL_ADMIN_TOKEN header/query (eval/demo)."""
+        user = current_user(request)
+        if user and user.get("role") == "manager":
+            return True
+        token = os.environ.get("PORTAL_ADMIN_TOKEN", "").strip()
+        if not token:
+            # Demo fallback: operator session also allowed when no token configured,
+            # but anonymous is never allowed (closes open /admin/faults).
+            return bool(user)
+
+        def _tok_ok(got: str) -> bool:
+            if not got or len(got) != len(token):
+                return False
+            return secrets.compare_digest(got, token)
+
+        hdr = request.headers.get("x-portal-admin-token") or ""
+        q = request.query_params.get("admin_token") or ""
+        return _tok_ok(hdr) or _tok_ok(q)
+
     @app.get("/admin/faults")
-    def get_faults() -> dict[str, Any]:
+    def get_faults(request: Request) -> Response:
+        if not _admin_authorized(request):
+            return JSONResponse({"detail": "admin auth required"}, status_code=401)
         return fault_state.as_dict()
 
     @app.post("/admin/faults")
-    async def set_faults(request: Request) -> dict[str, Any]:
+    async def set_faults(request: Request) -> Response:
+        if not _admin_authorized(request):
+            return JSONResponse({"detail": "admin auth required"}, status_code=401)
         payload = await request.json()
         faults = payload.get("faults", [])
         if isinstance(faults, str):
@@ -476,7 +502,9 @@ def create_app(*, reset_db: bool = True) -> FastAPI:
         return {"enabled": sorted(enabled), "unknown": unknown, **fault_state.as_dict()}
 
     @app.post("/admin/reset")
-    def admin_reset() -> dict[str, str]:
+    def admin_reset(request: Request) -> Response:
+        if not _admin_authorized(request):
+            return JSONResponse({"detail": "admin auth required"}, status_code=401)
         reset_database()
         fault_state.session_request_counts.clear()
         fault_state.flaky_fired.clear()

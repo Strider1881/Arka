@@ -87,3 +87,64 @@ def test_sabotage_caught_by_verifier(eval_data_dir: Path, monkeypatch: pytest.Mo
         )
     finally:
         server.should_exit = True
+
+
+def test_browser_scrape_hard_fail_for_submit_class(
+    eval_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Submit-class invoices fail verification when isolated scrape misses the number."""
+    from ark_operator.domain.enums import InvoiceDecision, InvoiceOutcome
+    from ark_operator.domain.models import InvoiceRecord
+    from ark_operator.events.store import EventStore
+    from ark_operator.runtime.pipeline import (
+        InvoicePipeline,
+        PipelineConfig,
+        build_default_fake_llm,
+    )
+    from ark_operator.verify.verifier import Verifier
+    from evals.runner import EVAL_ADMIN_TOKEN, _free_port, _start_portal
+
+    monkeypatch.setenv("PORTAL_OPERATOR_PASSWORD", "eval-pass")
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", EVAL_ADMIN_TOKEN)
+    port = _free_port()
+    server = _start_portal(eval_data_dir / "scrape-sabotage.db", port)
+    base = f"http://127.0.0.1:{port}"
+    try:
+        store = EventStore(eval_data_dir / "scrape-events.db")
+        cfg = PipelineConfig(
+            portal_base_url=base,
+            data_dir=eval_data_dir / "scrape-run",
+            auto_approve=True,
+            invoice_filter=["INV-1001"],
+            use_browser_loop=True,
+        )
+        result = InvoicePipeline(store, build_default_fake_llm(), cfg).run("Process invoices")
+        assert result.state.value == "COMPLETE"
+
+        inv = InvoiceRecord(
+            invoice_number="INV-1001",
+            vendor="Northwind Supplies",
+            amount=1240.0,
+            po_number="PO-501",
+            decision=InvoiceDecision.SUBMIT,
+            outcome=InvoiceOutcome.NEEDS_ATTENTION,
+            canonical_vendor="Northwind Supplies",
+            attachment_name="INV-1001.pdf",
+        )
+        original = Verifier._probe_isolated_browser
+
+        def _empty_scrape(self: Verifier) -> tuple[str, dict, str, list]:
+            ctx, state, note, _rows = original(self)
+            return ctx, state, note, []
+
+        monkeypatch.setattr(Verifier, "_probe_isolated_browser", _empty_scrape)
+        verifier = Verifier(base, email="operator@acmecorp.test", password="eval-pass")
+        try:
+            verification = verifier.verify_invoices([inv])
+        finally:
+            verifier.close()
+        assert verification.passed is False
+        scrape = next(c for c in verification.criteria if c.name.startswith("browser_sees_"))
+        assert scrape.passed is False
+    finally:
+        server.should_exit = True

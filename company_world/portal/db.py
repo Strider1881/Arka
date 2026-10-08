@@ -182,6 +182,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
 
 def seed(conn: sqlite3.Connection, *, operator_password: str, manager_password: str) -> None:
     """Idempotent seed: wipe transactional tables and re-insert demo master data."""
+    from company_world.portal.passwords import hash_password
+
     conn.executescript(
         """
         DELETE FROM approval_queue;
@@ -193,11 +195,21 @@ def seed(conn: sqlite3.Connection, *, operator_password: str, manager_password: 
     )
     conn.execute(
         "INSERT INTO users (email, password, display_name, role) VALUES (?, ?, ?, ?)",
-        ("operator@acmecorp.test", operator_password, "Portal Operator", "operator"),
+        (
+            "operator@acmecorp.test",
+            hash_password(operator_password),
+            "Portal Operator",
+            "operator",
+        ),
     )
     conn.execute(
         "INSERT INTO users (email, password, display_name, role) VALUES (?, ?, ?, ?)",
-        ("priya.nair@acmecorp.test", manager_password, "Priya Nair", "manager"),
+        (
+            "priya.nair@acmecorp.test",
+            hash_password(manager_password),
+            "Priya Nair",
+            "manager",
+        ),
     )
 
     vendor_ids: dict[str, int] = {}

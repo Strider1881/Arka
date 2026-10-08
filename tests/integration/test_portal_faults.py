@@ -26,14 +26,19 @@ def _vendor_po_ids(auth_client: TestClient, vendor: str, po_number: str) -> tupl
     return str(vendors[vendor]), po_match.group(1)
 
 
-def test_admin_faults_get_and_set(client: TestClient) -> None:
-    r = client.get("/admin/faults")
+def test_admin_faults_require_auth(client: TestClient) -> None:
+    assert client.get("/admin/faults").status_code == 401
+    assert client.post("/admin/faults", json={"faults": []}).status_code == 401
+
+
+def test_admin_faults_get_and_set(auth_client: TestClient) -> None:
+    r = auth_client.get("/admin/faults")
     assert r.status_code == 200
     assert "valid_faults" in r.json()
-    _enable(client, ["latency", "ui_rename"])
-    assert set(client.get("/admin/faults").json()["enabled"]) == {"latency", "ui_rename"}
-    _enable(client, [])
-    assert client.get("/admin/faults").json()["enabled"] == []
+    _enable(auth_client, ["latency", "ui_rename"])
+    assert set(auth_client.get("/admin/faults").json()["enabled"]) == {"latency", "ui_rename"}
+    _enable(auth_client, [])
+    assert auth_client.get("/admin/faults").json()["enabled"] == []
 
 
 def test_fault_latency(auth_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -120,5 +125,10 @@ def test_faults_env_parsed_on_app_create(portal_env: None, monkeypatch: pytest.M
 
     app = create_app(reset_db=True)
     client = TestClient(app)
+    client.post(
+        "/login",
+        data={"email": "operator@acmecorp.test", "password": "test-operator"},
+        follow_redirects=False,
+    )
     enabled = set(client.get("/admin/faults").json()["enabled"])
     assert enabled == {"ui_rename", "latency"}

@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "cursor/**"]
+  pull_request:
+
+jobs:
+  lint-test-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          uv sync
+          uv run playwright install --with-deps chromium
+          uv run python -m company_world.scripts.make_invoices
+      - name: Lint
+        run: make lint
+      - name: Test
+        run: make test
+      - name: Eval (a11y loop default)
+        run: make eval
+        env:
+          PORTAL_ADMIN_TOKEN: ci-admin-token

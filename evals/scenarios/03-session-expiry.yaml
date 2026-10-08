@@ -2,7 +2,8 @@ id: 03-session-expiry
 name: Session expiry
 faults:
 - session_expiry
-session_expiry_n: 5
+# Low N so AUTH_EXPIRED fires mid-submit on the a11y loop (recovery metric honesty).
+session_expiry_n: 2
 auto_approve: true
 invoice_filter:
 - INV-1011

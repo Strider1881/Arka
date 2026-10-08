@@ -43,18 +43,26 @@ dev = [
 [tool.coverage.run]
 branch = true
 concurrency = ["thread"]
-# Measured set is controlled by `make test` --cov flags (core runtime modules).
+# Measured set is controlled by `make test` --cov flags (includes pipeline + browser loop).
 omit = [
     "*/ark_operator/api/*",
     "*/ark_operator/cli.py",
+    "*/ark_operator/demo.py",
     "*/ark_operator/llm/anthropic_client.py",
-    "*/ark_operator/runtime/pipeline.py",
     "*/ark_operator/runtime/executor.py",
     "*/ark_operator/runtime/planner.py",
     "*/ark_operator/runtime/understand.py",
     "*/ark_operator/runtime/orchestrator.py",
-    "*/ark_operator/tools/*",
-    "*/ark_operator/memory/*",
+    "*/ark_operator/tools/browser.py",
+    "*/ark_operator/tools/portal_api.py",
+    "*/ark_operator/tools/files.py",
+    "*/ark_operator/tools/ask_human.py",
+    "*/ark_operator/tools/knowledge_search.py",
+    "*/ark_operator/tools/registry.py",
+    "*/ark_operator/tools/secrets.py",
+    "*/ark_operator/tools/base.py",
+    "*/ark_operator/memory/knowledge.py",
+    "*/ark_operator/memory/working.py",
     "*/ark_operator/logging.py",
     "*/ark_operator/config.py",
 ]

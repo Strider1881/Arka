@@ -30,6 +30,8 @@ def portal_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PORTAL_OPERATOR_PASSWORD", "test-operator")
     monkeypatch.setenv("PORTAL_MANAGER_PASSWORD", "test-manager")
     monkeypatch.setenv("PORTAL_SESSION_SECRET", "test-secret")
+    # No admin token → any authenticated portal user may toggle faults (demo).
+    monkeypatch.delenv("PORTAL_ADMIN_TOKEN", raising=False)
     monkeypatch.setenv("FAULTS", "")
     monkeypatch.delenv("SESSION_EXPIRY_N", raising=False)
     fault_state.enabled = set()
@@ -77,6 +79,7 @@ def live_portal(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
     monkeypatch.setenv("PORTAL_OPERATOR_PASSWORD", "test-operator")
     monkeypatch.setenv("PORTAL_MANAGER_PASSWORD", "test-manager")
     monkeypatch.setenv("PORTAL_SESSION_SECRET", "test-secret")
+    monkeypatch.setenv("PORTAL_ADMIN_TOKEN", "test-admin-token")
     monkeypatch.setenv("FAULTS", "")
     fault_state.enabled = set()
     fault_state.flaky_test_force = False

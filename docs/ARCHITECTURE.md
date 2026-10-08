@@ -12,6 +12,8 @@ stateDiagram-v2
     UNDERSTAND --> PLAN
     UNDERSTAND --> CLARIFY: blocked question
     CLARIFY --> PLAN
+    CLARIFY --> AWAIT_APPROVAL: ask human
+    AWAIT_APPROVAL --> PLAN: clarify decided
     PLAN --> EXECUTE
     EXECUTE --> AWAIT_APPROVAL: policy requires human
     AWAIT_APPROVAL --> EXECUTE: decided
@@ -24,24 +26,29 @@ stateDiagram-v2
     EXECUTE --> ESCALATED
 ```
 
+**Single control plane:** `InvoicePipeline` owns all phases via `StateMachine` / FSM. `Orchestrator.start()` only allocates `run_id`. Per-invoice sub-plans drive `_act_on_invoice` (browser / ask_human steps).
+
 ## Event sourcing
 
 ```mermaid
 flowchart LR
   Tools --> Events[(SQLite events append-only)]
   Events --> Fold[Fold working state]
-  Fold --> Orchestrator
-  Orchestrator --> Tools
+  Fold --> Pipeline[InvoicePipeline]
+  Pipeline --> Tools
   Events --> Replay[Replay timeline]
   Events --> Verifier
   PortalAPI[portal_api read-only] --> Verifier
+  BrowserScrape[isolated Playwright scrape] --> Verifier
 ```
 
 ## Trust boundaries
 - PDF/web text wrapped as `<<<UNTRUSTED_DATA>>>` — never instructions
-- Passwords via secrets provider; redacted from logs/events
-- Verifier uses a **fresh** portal_api session (agent never grades itself)
+- Passwords via secrets provider; portal stores PBKDF2 hashes; redacted from logs/events
+- Verifier uses a **fresh** Playwright context + portal_api session (agent never grades itself)
+- Submit-class browser scrape is a **hard** criterion (miss fails the run)
 - Irreversible submits require policy clearance + idempotency keys
+- `/admin/faults` requires auth
 
 ## Browser execute→observe→adapt (SPEC §6.5–6.7)
 
@@ -53,18 +60,19 @@ flowchart LR
   Observe --> Done{postcondition / budget / stall}
 ```
 
-### Dual path (honest)
+### Measured vs optional path
 
 | Path | Trigger | Writes |
 |------|---------|--------|
-| Haiku a11y loop | AnthropicClient / `use_browser_loop=True` | One LLM-chosen action at a time from a11y refs |
-| FakeLLM CI shortcut | default `make test` / `make eval` | High-level `submit_invoice` (still real Playwright) |
+| **a11y loop (default)** | `make eval`, `use_browser_loop=True` | One LLM-chosen action at a time (`scripted_browser_step` under FakeLLM) |
+| RPA shortcut (optional) | `make eval-rpa` / `--no-browser-loop` | High-level `submit_invoice` (still real Playwright) |
 
 Clearance + `IrreversibleLedger` + independent verifier wrap **both** paths. Policy/verify never go through FakeLLM.
 
 ## Package map
-- `ark_operator/runtime` — orchestrator, pipeline, browser_loop, executor, recovery, budgets
-- `ark_operator/tools` — browser, pdf, files, knowledge, portal_api, ask_human
+- `ark_operator/runtime` — pipeline (phases), browser_loop, recovery, budgets, stall, plan_revision
+- `ark_operator/tools` — browser, pdf_extract (LLM+confidence), files, knowledge, portal_api, ask_human
 - `ark_operator/policy` — rules.yaml + decision engine
 - `ark_operator/verify` — independent checks + evidence
+- `ark_operator/memory` — knowledge FTS + event-conditioned episodic lessons
 - `company_world` — deterministic AcmeCorp Procure world

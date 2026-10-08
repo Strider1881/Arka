@@ -41,3 +41,10 @@ def test_state_machine_persists_via_events(tmp_path: Path) -> None:
         e.payload["state"] for e in store.list_for_run(run_id) if e.type == EventType.STATE_CHANGED
     ]
     assert states == ["UNDERSTAND", "PLAN", "EXECUTE", "REPORT", "COMPLETE"]
+
+
+def test_clarify_and_await_approval_to_plan() -> None:
+    assert_legal(RunState.UNDERSTAND, RunState.CLARIFY)
+    assert_legal(RunState.CLARIFY, RunState.AWAIT_APPROVAL)
+    assert_legal(RunState.AWAIT_APPROVAL, RunState.PLAN)
+    assert_legal(RunState.CLARIFY, RunState.PLAN)

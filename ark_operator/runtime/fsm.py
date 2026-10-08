@@ -22,7 +22,10 @@ ALLOWED: dict[RunState, frozenset[RunState]] = {
             RunState.ESCALATED,
         }
     ),
-    RunState.AWAIT_APPROVAL: frozenset({RunState.EXECUTE, RunState.FAILED, RunState.ESCALATED}),
+    # PLAN: resume after CLARIFY pause; EXECUTE: resume after mid-run approval pause.
+    RunState.AWAIT_APPROVAL: frozenset(
+        {RunState.EXECUTE, RunState.PLAN, RunState.FAILED, RunState.ESCALATED}
+    ),
     RunState.VERIFY: frozenset({RunState.REPAIR, RunState.REPORT, RunState.FAILED}),
     RunState.REPAIR: frozenset({RunState.EXECUTE, RunState.REPORT, RunState.FAILED}),
     RunState.REPORT: frozenset({RunState.COMPLETE, RunState.FAILED}),

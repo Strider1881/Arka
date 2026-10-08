@@ -1,44 +1,44 @@
 # Demo (≈90 seconds)
 
-Matches `make demo` / the README story. Portal must be up.
+Matches `make demo` / the README story. Portal may already be up, or the demo spawns one.
 
 ## Prep
 ```bash
 cp .env.example .env   # set PORTAL_OPERATOR_PASSWORD; optional ANTHROPIC_API_KEY
 make setup
-make portal            # terminal A — http://127.0.0.1:8765
+make portal            # terminal A — http://127.0.0.1:8765 (optional if demo spawns)
+export PORTAL_ADMIN_TOKEN=demo-admin-token
 ```
 
-## Path A — `make demo` (headless, FakeLLM CI shortcut)
+## Path A — `make demo` (headless 90s story)
 
 ```bash
 make demo
-# Runs: operator run "…" --auto-approve --only INV-1001,INV-1008,INV-1010
 ```
 
-What you should see in the CLI report:
+Automated narrative:
 
-1. **INV-1001** — happy submit (Northwind / PO-501).
-2. **INV-1008** — under-threshold submit (Umbrella / PO-508).
-3. **INV-1010** — processes normally; **SECURITY_FINDING** for the PDF injection (not obeyed).
-4. Independent verifier marks completed invoices; false success stays 0.
+1. **Fault + recovery** — enable `ui_rename`, process INV-1012 via a11y loop; expect `RECOVERY_ATTEMPTED` + proof.
+2. **Approval pause** — INV-1003 with `auto_approve=None`; seeded decide; resume submit.
+3. **Verifier catch** — sabotage invoice with no portal row → verification fails (false_success stays 0).
+4. **Proof** — INV-1001 submit + independent verify (API + browser scrape).
 
-Browser writes use the **`submit_invoice` shortcut** (real Playwright). With a keyed Anthropic client, CLI/UI use the **Haiku one-action a11y loop** instead — see README dual-path table.
+Browser writes use the **a11y loop** by default (`scripted_browser_step` under FakeLLM).
 
-## Path B — UI (full story: approval + proof)
+## Path B — UI (interactive)
 
 ```bash
 make ui                # terminal B — http://127.0.0.1:8877
 ```
 
-1. **Request** — Keep default: “Process this month's pending vendor invoices.” → **Start work**.
-2. **Approval** — When INV-1003 appears, the card shows vendor/amount/PO/risk/policy. Click **approve**.
-3. **Fault (optional)** — `curl -X POST http://127.0.0.1:8765/admin/faults -H 'content-type: application/json' -d '{"faults":["ui_rename"]}'` then CLI `--only INV-1012` to show label→stable-id recovery + `PLAN_REVISED`.
+1. **Request** — Keep default → **Start work**.
+2. **Approval** — INV-1003 card → **approve**.
+3. **Fault** — `curl -X POST http://127.0.0.1:8765/admin/faults -H 'x-portal-admin-token: demo-admin-token' -H 'content-type: application/json' -d '{"faults":["ui_rename"]}'` then CLI `--only INV-1012`.
 4. **Proof** — Outcomes + **Verified** panel + evidence thumbnails.
-5. **Details** — Tokens/cost, tool calls, plan revisions, full timeline (not the default view).
+5. **Details** — Tokens/cost, tool calls, plan revisions, full timeline.
 
-## CLI one-liner (all invoices, auto-approve)
+## CLI
 ```bash
-make portal &
 uv run operator run "Process this month's pending vendor invoices." --auto-approve
+uv run operator approve <run_id> --step INV-1003
 ```
