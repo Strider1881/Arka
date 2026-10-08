@@ -171,6 +171,9 @@ def run_scenario(
                 timeout=5.0,
             )
         os.environ["PORTAL_OPERATOR_PASSWORD"] = password
+        # Drop cached Settings: eval-llm calls get_settings() for the API key
+        # before we override the portal password to eval-pass.
+        clear_settings_cache()
         store = EventStore(data_dir / f"events-{scenario['id']}.db")
         scenario_dir = data_dir / scenario["id"]
         scenario_dir.mkdir(parents=True, exist_ok=True)
