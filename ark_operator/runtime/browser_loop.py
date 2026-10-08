@@ -39,7 +39,7 @@ class BrowserLoop:
     stall: StallDetector
     recovery: Recovery
     budgets: Budgets
-    max_actions: int = 30
+    max_actions: int = 20
     prefer_label_first: bool = False
 
     def run_submit(
@@ -104,7 +104,7 @@ class BrowserLoop:
                 step_id=step_id,
             )
 
-            if _postcondition_met(last_obs):
+            if _postcondition_met(last_obs, fields):
                 return BrowserLoopResult(
                     ok=True,
                     data={
@@ -144,7 +144,7 @@ class BrowserLoop:
 
             if choice.action == "done":
                 # LLM claims done — re-check postcondition once more.
-                if _postcondition_met(last_obs):
+                if _postcondition_met(last_obs, fields):
                     return BrowserLoopResult(
                         ok=True,
                         data={
@@ -239,6 +239,19 @@ class BrowserLoop:
                         {"kind": "AUTH_EXPIRED", "idempotency_key": idempotency_key},
                         step_id=step_id,
                     )
+                if fail.kind == FailureKind.TRANSIENT:
+                    self.store.append(
+                        self.run_id,
+                        EventType.RECOVERY_ATTEMPTED,
+                        {
+                            "kind": "TRANSIENT",
+                            "detail": fail.message,
+                            "idempotency_key": idempotency_key,
+                        },
+                        step_id=step_id,
+                    )
+                    # Re-open submit form after flaky JSON 500 wiped the page.
+                    self.browser.run({"action": "goto", "url": "/invoices/submit"})
                 handled = self.recovery.handle(
                     f"{idempotency_key}:{choice.action}",
                     fail,
@@ -247,6 +260,14 @@ class BrowserLoop:
                 )
                 if isinstance(handled, ToolResult):
                     result = handled
+                    # After AUTH recovery, force a fresh submit form navigation next loop.
+                    if fail.kind == FailureKind.AUTH_EXPIRED:
+                        self.browser.run({"action": "goto", "url": "/invoices/submit"})
+                        history[-1]["recovered"] = "AUTH_EXPIRED"
+                        continue
+                    if fail.kind == FailureKind.TRANSIENT and not result.ok:
+                        history[-1]["error"] = fail.message
+                        continue
                 else:
                     history[-1]["error"] = handled.message
                     if not handled.retryable and handled.kind in {
@@ -366,11 +387,25 @@ def _compact_observation(obs: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _postcondition_met(obs: dict[str, Any]) -> bool:
+def _postcondition_met(obs: dict[str, Any], fields: dict[str, Any] | None = None) -> bool:
+    """True only when the *target* invoice appears submitted — not a prior detail page."""
     url = str(obs.get("url") or "")
-    banners = " ".join(obs.get("banners") or [])
+    banners = " ".join(str(b) for b in (obs.get("banners") or []))
+    blob = " ".join(
+        [
+            url,
+            banners,
+            str(obs.get("title") or ""),
+            " ".join(str(x) for x in (obs.get("elements") or [])),
+        ]
+    )
     landed = "/invoices/" in url and "/submit" not in url and "/login" not in url
-    return landed and "Duplicate submit blocked" not in banners
+    if not landed or "Duplicate submit blocked" in banners:
+        return False
+    needle = str((fields or {}).get("invoice_number") or "").strip()
+    if not needle:
+        return True
+    return needle in blob
 
 
 def _ref_for_id(obs: dict[str, Any], element_id: str) -> str | None:
@@ -448,7 +483,8 @@ def scripted_browser_step(variables: dict[str, Any]) -> dict[str, Any]:
     url_line = next((ln for ln in obs.splitlines() if ln.startswith("url:")), "")
     url = url_line.split("url:", 1)[-1].strip()
 
-    if _script_postcondition(url, obs):
+    inv_no = str(fields.get("invoice_number") or "")
+    if _script_postcondition(url, obs, inv_no):
         return {"action": "done", "rationale": "postcondition met"}
 
     if "/login" in url or ("id=login-submit" in obs and "/dashboard" not in url):
@@ -471,10 +507,25 @@ def scripted_browser_step(variables: dict[str, Any]) -> dict[str, Any]:
     for action, eid, arg_key, arg_val in plan:
         if not arg_val:
             continue
-        if field_done(eid, arg_val) or already_set(eid):
+        # Observation-driven only: after AUTH/flaky re-open, history alone must not skip fills.
+        if field_done(eid, arg_val):
+            continue
+        if already_set(eid) and field_done(eid, arg_val):
             continue
         ref = find_ref(eid)
         if ref is None:
+            continue
+        # Avoid infinite re-fill of the same empty control in one observe cycle.
+        recent_same = sum(
+            1
+            for h in history[-6:]
+            if isinstance(h, dict)
+            and h.get("action") == action
+            and eid in str(h.get("rationale") or "")
+            and not h.get("error")
+        )
+        if recent_same >= 2 and not field_done(eid, arg_val):
+            # Observation not reflecting fills yet — continue to next field / submit.
             continue
         payload: dict[str, Any] = {
             "action": action,
@@ -515,13 +566,30 @@ def scripted_browser_step(variables: dict[str, Any]) -> dict[str, Any]:
             "ref": submit_ref,
             "rationale": "stable id submit-invoice-button",
         }
+    # After flaky_500 / blank page: re-open the form instead of aborting.
+    already_reopen = any(
+        isinstance(h, dict)
+        and h.get("action") == "goto"
+        and "reopen" in str(h.get("rationale") or "")
+        for h in history[-4:]
+    )
+    if not already_reopen:
+        return {
+            "action": "goto",
+            "url": "/invoices/submit",
+            "rationale": "reopen submit form after missing controls",
+        }
     return {"action": "abort", "rationale": "submit control not found"}
 
 
-def _script_postcondition(url: str, obs: str) -> bool:
-    return (
+def _script_postcondition(url: str, obs: str, invoice_number: str = "") -> bool:
+    if not (
         "/invoices/" in url
         and "/submit" not in url
         and "/login" not in url
         and "Duplicate submit blocked" not in obs
-    )
+    ):
+        return False
+    if not invoice_number:
+        return True
+    return invoice_number in obs

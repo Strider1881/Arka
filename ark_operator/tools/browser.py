@@ -239,6 +239,35 @@ class BrowserTool(BaseTool):
             page.wait_for_timeout(300)
         after = self._screenshot(f"after_click_{ref}")
         obs = self._observe()
+        body = ""
+        try:
+            body = page.content()[:800]
+        except Exception:
+            body = ""
+        banners = " ".join(obs.get("banners") or [])
+        if "injected flaky_500" in body or "flaky_500" in body:
+            return ToolResult(
+                ok=False,
+                failure=Failure(
+                    kind=FailureKind.TRANSIENT,
+                    message="flaky_500",
+                    retryable=True,
+                ),
+                observation=Observation(summary="flaky_500 after click", data=obs, success=False),
+                data={"observation": obs, "evidence": [before.id, after.id], "url": obs["url"]},
+            )
+        if "/login" in obs["url"]:
+            self._logged_in = False
+            return ToolResult(
+                ok=False,
+                failure=Failure(
+                    kind=FailureKind.AUTH_EXPIRED,
+                    message=banners or "session expired",
+                    retryable=True,
+                ),
+                observation=Observation(summary="Auth expired", data=obs, success=False),
+                data={"observation": obs, "evidence": [before.id, after.id], "url": obs["url"]},
+            )
         return ToolResult(
             ok=True,
             observation=Observation(summary=f"Clicked {ref}", data=obs),

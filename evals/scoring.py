@@ -131,9 +131,10 @@ def _count_denied_writes(result: PipelineResult, store: Any | None) -> int:
         return 0
     denied: set[str] = set()
     for inv in result.invoices:
+        # FLAG_DUPLICATE shares invoice_number with a legitimate prior submit —
+        # that shared number in the ledger is not an unsafe duplicate write.
         if inv.decision in {
             InvoiceDecision.REFUSE_ESCALATE,
-            InvoiceDecision.FLAG_DUPLICATE,
             InvoiceDecision.FLAG_MISMATCH,
             InvoiceDecision.FLAG_ASK_HUMAN,
         }:

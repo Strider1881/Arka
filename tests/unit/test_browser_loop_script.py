@@ -69,10 +69,28 @@ def test_script_fills_then_submits() -> None:
 def test_script_done_on_detail() -> None:
     choice = scripted_browser_step(
         {
-            "observation": "title: Invoice\nurl: http://x/invoices/42\nbanners: ok",
-            "fields": "{}",
+            "observation": (
+                "title: Invoice INV-1001\nurl: http://x/invoices/42\n"
+                "banners: Invoice INV-1001 recorded as SUBMITTED."
+            ),
+            "fields": json.dumps({"invoice_number": "INV-1001"}),
             "history": "[]",
             "hints": "",
         }
     )
     assert choice["action"] == "done"
+
+
+def test_script_not_done_on_other_invoice_detail() -> None:
+    choice = scripted_browser_step(
+        {
+            "observation": (
+                "title: Invoice INV-1001\nurl: http://x/invoices/1\n"
+                "banners: Invoice INV-1001 recorded as SUBMITTED."
+            ),
+            "fields": json.dumps({"invoice_number": "INV-1002"}),
+            "history": "[]",
+            "hints": "",
+        }
+    )
+    assert choice["action"] != "done"

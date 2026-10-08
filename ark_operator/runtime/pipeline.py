@@ -1163,19 +1163,37 @@ class InvoicePipeline:
     def _repair_missing_submits(
         self, run_id: str, invoices: list[InvoiceRecord], ledger: IrreversibleLedger
     ) -> None:
-        for inv in invoices:
-            if inv.outcome in {
-                InvoiceOutcome.REFUSED,
-                InvoiceOutcome.FLAGGED,
-            }:
-                continue
-            if inv.decision not in {InvoiceDecision.SUBMIT, InvoiceDecision.NEEDS_APPROVAL}:
-                continue
-            api = self.registry.get("portal_api")
-            found = api.run({"action": "invoice_by_number", "invoice_number": inv.invoice_number})
-            if found.ok and found.data.get("result"):
-                continue
-            self._browser_submit(run_id, inv, ledger)
+        # Repair uses the durable RPA shortcut so a flaky/session-failed a11y attempt
+        # can still converge; the measured first pass remains the loop.
+        prev = self.config.use_browser_loop
+        self.config.use_browser_loop = False
+        try:
+            for inv in invoices:
+                if inv.outcome in {
+                    InvoiceOutcome.REFUSED,
+                    InvoiceOutcome.FLAGGED,
+                }:
+                    continue
+                if inv.decision not in {InvoiceDecision.SUBMIT, InvoiceDecision.NEEDS_APPROVAL}:
+                    continue
+                api = self.registry.get("portal_api")
+                found = api.run(
+                    {"action": "invoice_by_number", "invoice_number": inv.invoice_number}
+                )
+                if found.ok and found.data.get("result"):
+                    continue
+                self.store.append(
+                    run_id,
+                    EventType.RECOVERY_ATTEMPTED,
+                    {
+                        "kind": "TRANSIENT",
+                        "detail": "repair via submit_invoice shortcut after a11y miss",
+                        "invoice_number": inv.invoice_number,
+                    },
+                )
+                self._browser_submit(run_id, inv, ledger)
+        finally:
+            self.config.use_browser_loop = prev
 
     def _build_report(
         self,
