@@ -66,6 +66,82 @@ def test_script_fills_then_submits() -> None:
     assert "submit-invoice-button" in str(history[-1]["rationale"])
 
 
+def test_script_refills_after_form_wipe() -> None:
+    """After TRANSIENT reopen, observation shows empty fields — refill despite history."""
+    empty_obs = (
+        "title: Submit\nurl: http://x/invoices/submit\n"
+        '[e0] select "vendor" id=vendor_id options=[1:Northwind Supplies]\n'
+        "[e1] input/text \"inv\" id=invoice_number value=''\n"
+        '[e2] select "po" id=po_id options=[10:PO-501]\n'
+        "[e3] input/text \"amt\" id=amount value=''\n"
+        "[e4] input/text \"date\" id=invoice_date value=''\n"
+        "[e5] input/text \"att\" id=attachment_name value=''\n"
+        '[e6] button "Submit invoice" id=submit-invoice-button\n'
+    )
+    fields = json.dumps(
+        {
+            "vendor": "Northwind Supplies",
+            "invoice_number": "INV-1001",
+            "po_number": "PO-501",
+            "amount": 1240.0,
+            "invoice_date": "2026-03-01",
+            "attachment_name": "INV-1001.pdf",
+        }
+    )
+    # Prior fills + failed click + recovery goto (as browser_loop records).
+    history = [
+        {"action": "goto", "url": "/invoices/submit", "rationale": "open submit form"},
+        {
+            "action": "select",
+            "ref": "e0",
+            "value": "Northwind Supplies",
+            "rationale": "set vendor_id",
+        },
+        {
+            "action": "fill",
+            "ref": "e1",
+            "text": "INV-1001",
+            "rationale": "set invoice_number",
+        },
+        {"action": "select", "ref": "e2", "value": "PO-501", "rationale": "set po_id"},
+        {"action": "fill", "ref": "e3", "text": "1240.00", "rationale": "set amount"},
+        {
+            "action": "fill",
+            "ref": "e4",
+            "text": "2026-03-01",
+            "rationale": "set invoice_date",
+        },
+        {
+            "action": "fill",
+            "ref": "e5",
+            "text": "INV-1001.pdf",
+            "rationale": "set attachment_name",
+        },
+        {
+            "action": "click",
+            "ref": "e6",
+            "rationale": "stable id submit-invoice-button",
+            "error": "flaky_500",
+        },
+        {
+            "action": "goto",
+            "url": "/invoices/submit",
+            "rationale": "reopen submit form after TRANSIENT",
+            "recovered": "TRANSIENT",
+        },
+    ]
+    choice = scripted_browser_step(
+        {
+            "observation": empty_obs,
+            "fields": fields,
+            "history": json.dumps(history),
+            "hints": "- Prefer stable element ids",
+        }
+    )
+    assert choice["action"] in {"select", "fill"}
+    assert "set " in str(choice.get("rationale") or "")
+
+
 def test_script_done_on_detail() -> None:
     choice = scripted_browser_step(
         {

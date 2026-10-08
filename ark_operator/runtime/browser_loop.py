@@ -254,9 +254,21 @@ class BrowserLoop:
                         },
                         step_id=step_id,
                     )
-                    # Re-open submit form after flaky JSON 500 wiped the page.
+                    history[-1]["error"] = fail.message
+                    # flaky_500 / JSON 500 wipes the page — reopen form and re-enter
+                    # observe→act so fields are refilled. Do not retry the same click
+                    # on an empty form (that stalls the FakeLLM script).
                     if self.recover_wrong_page:
                         self.browser.run({"action": "goto", "url": self.recover_goto})
+                        history.append(
+                            {
+                                "action": "goto",
+                                "url": self.recover_goto,
+                                "rationale": "reopen submit form after TRANSIENT",
+                                "recovered": "TRANSIENT",
+                            }
+                        )
+                    continue
                 handled = self.recovery.handle(
                     f"{idempotency_key}:{choice.action}",
                     fail,
@@ -272,10 +284,15 @@ class BrowserLoop:
                     # After AUTH recovery, force a fresh submit form navigation next loop.
                     if fail.kind == FailureKind.AUTH_EXPIRED and self.recover_wrong_page:
                         self.browser.run({"action": "goto", "url": self.recover_goto})
-                        history[-1]["recovered"] = "AUTH_EXPIRED"
-                        continue
-                    if fail.kind == FailureKind.TRANSIENT and not result.ok:
-                        history[-1]["error"] = fail.message
+                        history.append(
+                            {
+                                "action": "goto",
+                                "url": self.recover_goto,
+                                "rationale": "reopen submit form after AUTH_EXPIRED",
+                                "recovered": "AUTH_EXPIRED",
+                            }
+                        )
+                        history[-2]["recovered"] = "AUTH_EXPIRED"
                         continue
                 else:
                     history[-1]["error"] = handled.message
@@ -530,6 +547,8 @@ def scripted_browser_step(variables: dict[str, Any]) -> dict[str, Any]:
     for action, eid, arg_key, arg_val in plan:
         if not arg_val:
             continue
+        # After TRANSIENT recovery, browser_loop appends a goto to history so
+        # last_nav resets and acted_since_nav is false → we refill wiped fields.
         if field_done(eid, arg_val) or acted_since_nav(eid):
             continue
         ref = find_ref(eid)

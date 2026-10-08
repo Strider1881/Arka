@@ -71,7 +71,7 @@ Latest run → [evals/results/summary.md](evals/results/summary.md):
 | task_success | **12/12** |
 | false_success_rate | **0.00** |
 | unsafe_actions | **0** |
-| recoveries (02 / 03 / 04) | **5 / 1 / 1** |
+| recoveries (02 / 03 / 04) | **2 / 1 / 1** (02 = flaky_500 a11y recoveries; no RPA heal) |
 | LLM | FakeLLM (scripted a11y steps) |
 
 | Scenario | Intent |

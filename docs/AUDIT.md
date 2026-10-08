@@ -4,6 +4,16 @@
 **Method:** Read-only code audit of `/workspace` on that branch. No production code modified.  
 **Product claim under test:** Autonomous AI company operator (vague request → completed work with context, tools/browser, human approval, recovery, independent verification). Primary workflow: invoice processing.
 
+## P0 status (implemented)
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | RPA repair off on `make eval` / a11y path | **Done** — `allow_rpa_repair=False`; only `make eval-rpa` may enable. TRANSIENT a11y recovery hardened so 02 does not need silent heal. |
+| 2 | Docs: plan / FakeLLM honesty | **Done** — README, ARCHITECTURE, DECISIONS |
+| 3 | Consume `PLAN_REVISED` args | **Done** — `browser_prefs_from_plan` → pipeline / BrowserLoop |
+
+Residual: full contiguous `make eval` not re-run after TRANSIENT fix (02 proven alone with repair off). See store `docs/audit-p0-pass.md`.
+
 ---
 
 ## Executive verdict (D)
