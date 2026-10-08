@@ -34,6 +34,8 @@ class EventType(StrEnum):
     SECURITY_FINDING = "SECURITY_FINDING"
     STATE_CHANGED = "STATE_CHANGED"
     IDEMPOTENCY_SKIP = "IDEMPOTENCY_SKIP"
+    # Token/cost observability (SPEC §10 / Details view) — not in minimal §6.1 list.
+    LLM_USAGE = "LLM_USAGE"
 
 
 class EventRecord(BaseModel):

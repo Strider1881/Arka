@@ -2,16 +2,45 @@
 {% block title %}Details — Operator{% endblock %}
 {% block content %}
 <h1>Details</h1>
-<p class="lead">Event timeline for run <code>{{ run_id }}</code></p>
-<div class="card">
+<p class="lead">Observability for run <code>{{ run_id }}</code> (not the main work path).</p>
+
+<div class="card" style="margin-bottom:1.25rem">
+  <h2 style="margin-top:0;font-size:1.05rem">Usage summary</h2>
   <table>
-    <thead><tr><th>Seq</th><th>Type</th><th>Step</th></tr></thead>
+    <tbody>
+      <tr><th>Tokens (in / out / total)</th>
+        <td>{{ usage.tokens_in }} / {{ usage.tokens_out }} / {{ usage.tokens_total }}</td></tr>
+      <tr><th>Estimated cost (USD)</th><td>{{ "%.6f"|format(usage.cost_usd) }}</td></tr>
+      <tr><th>Tool calls</th><td>{{ usage.tool_calls }}</td></tr>
+      <tr><th>Observations</th><td>{{ usage.observations }}</td></tr>
+      <tr><th>Plan revisions</th><td>{{ usage.plan_revisions }}</td></tr>
+      <tr><th>Recoveries</th><td>{{ usage.recoveries }}</td></tr>
+      <tr><th>Events</th><td>{{ usage.event_count }}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;font-size:1.05rem">Event timeline</h2>
+  <table>
+    <thead><tr><th>Seq</th><th>Type</th><th>Step</th><th>Note</th></tr></thead>
     <tbody>
     {% for e in timeline %}
       <tr>
         <td>{{ e.seq }}</td>
         <td>{{ e.type }}</td>
         <td>{{ e.step_id or "—" }}</td>
+        <td class="status" style="font-size:0.85rem;max-width:28rem">
+          {% if e.type == "LLM_USAGE" %}
+            {{ e.payload.prompt_id }} · {{ e.payload.tokens_in }}+{{ e.payload.tokens_out }} tok · ${{ "%.6f"|format(e.payload.cost_usd or 0) }}
+          {% elif e.type == "PLAN_REVISED" %}
+            {{ e.payload.kind or "revise" }}: {{ (e.payload.reason or "")[:120] }}
+          {% elif e.type == "TOOL_CALL" %}
+            {{ e.payload.tool or "" }} {{ e.payload.action or "" }}
+          {% else %}
+            —
+          {% endif %}
+        </td>
       </tr>
     {% endfor %}
     </tbody>

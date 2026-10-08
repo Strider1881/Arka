@@ -129,15 +129,13 @@ class Planner:
         return Plan(id=f"sub-{inv}", steps=steps, revision=0)
 
     def revise(self, plan: Plan, reason: str, changes: list[dict[str, Any]]) -> Plan:
-        revised = plan.model_copy(deep=True)
-        revised.revision += 1
-        for change in changes:
-            sid = str(change.get("step_id", ""))
-            for step in revised.steps:
-                if step.id == sid:
-                    if "args" in change and isinstance(change["args"], dict):
-                        step.args.update(change["args"])
-                    if "description" in change:
-                        step.description = str(change["description"])
-        _ = reason
-        return revised
+        """Apply mid-run changes. Prefer plan_revision.apply_revision for contradictions."""
+        from ark_operator.runtime.plan_revision import RevisionProposal, apply_revision
+
+        proposal = RevisionProposal(
+            reason=reason,
+            kind="MANUAL",
+            next_steps=[],
+            changes=changes,
+        )
+        return apply_revision(plan, proposal)

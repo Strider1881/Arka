@@ -30,6 +30,7 @@ from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
 from ark_operator.llm.base import LLMClient
 from ark_operator.llm.fake import FakeLLM
+from ark_operator.llm.usage_logger import UsageLoggingLLM
 from ark_operator.memory.episodic import EpisodicMemory
 from ark_operator.memory.knowledge import KnowledgeStore
 from ark_operator.policy.engine import PolicyEngine
@@ -37,6 +38,15 @@ from ark_operator.runtime.budgets import Budgets
 from ark_operator.runtime.fsm import StateMachine
 from ark_operator.runtime.idempotency import IrreversibleLedger, irreversible_key
 from ark_operator.runtime.orchestrator import Orchestrator
+from ark_operator.runtime.plan_revision import (
+    AUTH_EXPIRED,
+    Contradiction,
+    apply_revision,
+    detect_from_browser_observation,
+    detect_missing_po,
+    propose_revision,
+    revision_event_payload,
+)
 from ark_operator.runtime.planner import Planner
 from ark_operator.runtime.recovery import Recovery
 from ark_operator.runtime.stall_detector import StallDetector
@@ -104,11 +114,14 @@ class InvoicePipeline:
         self.recovery = Recovery()
         self.budgets = Budgets()
         self.stall = StallDetector()
+        self._raw_llm = llm
+        self.llm = llm
         self.understander = Understander(llm)
         self.planner = Planner(llm)
         self.registry = ToolRegistry()
         self._browser: BrowserTool | None = None
         self._portal_api: PortalApiTool | None = None
+        self._plan: Plan | None = None
 
     def _setup_tools(self, run_id: str, *, prefer_label_first: bool = False) -> None:
         creds = portal_operator_credentials()
@@ -172,6 +185,10 @@ class InvoicePipeline:
         ledger = IrreversibleLedger(self.store, run_id)
         # Rebuild duplicate detection purely from folded events.
         self.policy.seen_keys |= set(snapshot.seen_duplicate_keys)
+        # Log every LLM call's tokens/cost onto the event timeline (Details).
+        self.llm = UsageLoggingLLM(self._raw_llm, self.store, run_id, self.budgets)
+        self.understander = Understander(self.llm)
+        self.planner = Planner(self.llm)
 
         def is_terminal(key: str) -> bool:
             cached = self.store.get_idempotent(key)
@@ -222,35 +239,34 @@ class InvoicePipeline:
         # PLAN
         if fsm.state == RunState.PLAN:
             plan = self.planner.create_plan(interpretation)
+            self.store.append(
+                run_id,
+                EventType.PLAN_CREATED,
+                {
+                    "plan_id": plan.id,
+                    "steps": [s.model_dump(mode="json") for s in plan.steps],
+                },
+            )
             if lessons:
-                plan = self.planner.revise(
-                    plan,
-                    "episodic lessons",
-                    [
-                        {
-                            "step_id": "process-invoices",
-                            "description": "Use stable element ids; lessons applied",
-                        }
-                    ],
+                # Lessons contradict label-first assumption → structural args change.
+                from ark_operator.runtime.plan_revision import UI_RENAME
+
+                lesson_c = Contradiction(
+                    kind=UI_RENAME,
+                    reason=(
+                        "Episodic lessons contradict label-first submit assumption; "
+                        "prefer stable element ids."
+                    ),
+                    evidence={"lessons": [str(x.get("lesson") or x) for x in lessons[:3]]},
                 )
+                proposal = propose_revision(plan, lesson_c)
+                plan = apply_revision(plan, proposal)
                 self.store.append(
                     run_id,
                     EventType.PLAN_REVISED,
-                    {
-                        "plan_id": plan.id,
-                        "revision": plan.revision,
-                        "steps": [s.model_dump(mode="json") for s in plan.steps],
-                    },
+                    revision_event_payload(plan, proposal),
                 )
-            else:
-                self.store.append(
-                    run_id,
-                    EventType.PLAN_CREATED,
-                    {
-                        "plan_id": plan.id,
-                        "steps": [s.model_dump(mode="json") for s in plan.steps],
-                    },
-                )
+            self._plan = plan
             go(RunState.EXECUTE)
         elif fsm.state == RunState.AWAIT_APPROVAL:
             go(RunState.EXECUTE)
@@ -258,11 +274,54 @@ class InvoicePipeline:
             # Mid-VERIFY/REPAIR resume: continue from VERIFY below
             pass
 
-        # Load portal master data for policy
+        # Load portal master data for policy (fail closed if POs missing).
         assert self._portal_api is not None
-        vendors = self._portal_api.run({"action": "vendors"}).data.get("result") or []
-        pos = self._portal_api.run({"action": "pos"}).data.get("result") or []
-        self.policy.load_portal_master(list(vendors), list(pos))
+        vendors_res = self._portal_api.run({"action": "vendors"})
+        pos_res = self._portal_api.run({"action": "pos"})
+        if not vendors_res.ok or not pos_res.ok:
+            vendors_res = self._portal_api.run({"action": "vendors"})
+            pos_res = self._portal_api.run({"action": "pos"})
+        vendors = list(vendors_res.data.get("result") or []) if vendors_res.ok else []
+        pos = list(pos_res.data.get("result") or []) if pos_res.ok else []
+        if not pos:
+            detail = {
+                "vendors_ok": vendors_res.ok,
+                "pos_ok": pos_res.ok,
+                "vendors_n": len(vendors),
+                "pos_n": len(pos),
+                "vendors_err": (vendors_res.failure.message if vendors_res.failure else None),
+                "pos_err": pos_res.failure.message if pos_res.failure else None,
+            }
+            self.store.append(
+                run_id,
+                EventType.FAILURE_CLASSIFIED,
+                {
+                    "kind": "UNRECOVERABLE",
+                    "message": "portal master data unavailable",
+                    **detail,
+                },
+            )
+            report = self._build_report(
+                run_id,
+                [],
+                VerificationResult(
+                    passed=False,
+                    overall_notes="portal master data unavailable",
+                ),
+                partial=True,
+                partial_reason="portal master data unavailable",
+            )
+            result.report = report
+            self.store.append(run_id, EventType.REPORT_CREATED, report.model_dump(mode="json"))
+            self.store.append(
+                run_id,
+                EventType.RUN_FAILED,
+                {"reason": "portal_master_unavailable", **detail},
+            )
+            go(RunState.FAILED)
+            result.state = RunState.FAILED
+            return result
+        self.policy.load_portal_master(vendors, pos)
 
         # EXECUTE
         if fsm.state == RunState.EXECUTE:
@@ -345,6 +404,14 @@ class InvoicePipeline:
                         "steps": [s.model_dump(mode="json") for s in sub.steps],
                     },
                 )
+                # Observation: missing PO contradicts three-way-match assumption.
+                miss = detect_missing_po(
+                    invoice_number=inv.invoice_number,
+                    po_number=inv.po_number,
+                    decision=inv.decision.value if inv.decision else None,
+                )
+                if miss is not None:
+                    self._emit_plan_revision(run_id, miss, base_plan=sub)
 
                 if inv.security_finding:
                     self.store.append(
@@ -687,7 +754,9 @@ class InvoicePipeline:
             return self.config.use_browser_loop
         from ark_operator.llm.anthropic_client import AnthropicClient
 
-        return isinstance(self.llm, AnthropicClient)
+        # UsageLoggingLLM wraps self.llm after _execute starts — check inner + raw.
+        inner = getattr(self.llm, "_inner", self.llm)
+        return isinstance(inner, AnthropicClient) or isinstance(self._raw_llm, AnthropicClient)
 
     def _browser_submit(
         self, run_id: str, inv: InvoiceRecord, ledger: IrreversibleLedger
@@ -780,6 +849,15 @@ class InvoicePipeline:
                 "actions": len(loop_res.actions),
             },
         )
+        contra = detect_from_browser_observation(
+            url=str(loop_res.data.get("url") or ""),
+            banner=str(loop_res.data.get("banner") or ""),
+            recovered_from_label=loop_res.recovered_from_label,
+            ok=loop_res.ok,
+            invoice_number=inv.invoice_number,
+        )
+        if contra is not None:
+            self._emit_plan_revision(run_id, contra)
         if loop_res.ok:
             ledger.commit(
                 key,
@@ -854,6 +932,18 @@ class InvoicePipeline:
                         )
                     }
                 )
+            if res.failure.kind == FailureKind.AUTH_EXPIRED:
+                self._emit_plan_revision(
+                    run_id,
+                    Contradiction(
+                        kind=AUTH_EXPIRED,
+                        reason=(
+                            "Landed on login after a portal action; session assumption invalidated."
+                        ),
+                        invoice_number=inv.invoice_number,
+                        evidence={"url": (res.data or {}).get("url")},
+                    ),
+                )
             self.store.append(
                 run_id,
                 EventType.RECOVERY_ATTEMPTED,
@@ -889,6 +979,7 @@ class InvoicePipeline:
                     "kind": "screenshot",
                 },
             )
+        recovered_label = bool((res.data or {}).get("recovered_from_label"))
         self.store.append(
             run_id,
             EventType.OBSERVATION,
@@ -896,11 +987,20 @@ class InvoicePipeline:
                 "ok": res.ok,
                 "url": (res.data or {}).get("url"),
                 "banner": (res.data or {}).get("banner"),
-                "recovered_from_label": (res.data or {}).get("recovered_from_label"),
+                "recovered_from_label": recovered_label,
                 "evidence": evidence_ids,
                 "loop": "shortcut",
             },
         )
+        contra = detect_from_browser_observation(
+            url=str((res.data or {}).get("url") or ""),
+            banner=str((res.data or {}).get("banner") or ""),
+            recovered_from_label=recovered_label,
+            ok=res.ok,
+            invoice_number=inv.invoice_number,
+        )
+        if contra is not None:
+            self._emit_plan_revision(run_id, contra)
         if res.ok:
             ledger.commit(
                 key,
@@ -912,6 +1012,27 @@ class InvoicePipeline:
             )
             return InvoiceOutcome.NEEDS_ATTENTION
         return InvoiceOutcome.NEEDS_ATTENTION
+
+    def _emit_plan_revision(
+        self,
+        run_id: str,
+        contradiction: Contradiction,
+        *,
+        base_plan: Plan | None = None,
+    ) -> None:
+        """Emit real PLAN_REVISED with reason + next_steps when observations contradict."""
+        plan = base_plan or self._plan
+        if plan is None:
+            plan = Plan(id="runtime-adapt", steps=[])
+        proposal = propose_revision(plan, contradiction)
+        revised = apply_revision(plan, proposal)
+        if base_plan is None:
+            self._plan = revised
+        self.store.append(
+            run_id,
+            EventType.PLAN_REVISED,
+            revision_event_payload(revised, proposal),
+        )
 
     def _apply_approval(self, run_id: str, approval_id: str, decision: str) -> None:
         info = self.store.decide_approval(approval_id, decision, decided_by="eval-auto")

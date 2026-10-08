@@ -14,6 +14,19 @@ from ark_operator.llm.base import LLMResponse
 
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
+# Approximate USD / million tokens for Details observability (not billing).
+# Haiku-class defaults; override via env not required for the take-home.
+_HAIKU_IN_PER_MTOK = 1.0
+_HAIKU_OUT_PER_MTOK = 5.0
+
+
+def estimate_cost_usd(tokens_in: int, tokens_out: int) -> float:
+    """Rough USD estimate for token usage logging."""
+    return (tokens_in / 1_000_000.0) * _HAIKU_IN_PER_MTOK + (
+        tokens_out / 1_000_000.0
+    ) * _HAIKU_OUT_PER_MTOK
+
+
 # Fields the model often returns in the wrong case for our StrEnums.
 _UPPER_ENUM_KEYS = frozenset({"status", "risk_level", "confidence", "kind"})
 _STATUS_ALIASES = {
@@ -130,7 +143,7 @@ class AnthropicClient:
             raw_text=raw,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
-            cost_usd=0.0,
+            cost_usd=estimate_cost_usd(tokens_in, tokens_out),
         )
 
     def _call(self, client: Any, system: str, prompt: str) -> tuple[str, int, int]:

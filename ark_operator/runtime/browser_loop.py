@@ -198,8 +198,8 @@ class BrowserLoop:
                 and choice.action == "click"
                 and self.prefer_label_first
             ):
-                # Learning lever: label miss → re-resolve stable submit id (SPEC §6.6).
-                fallback = self._click_stable_submit()
+                # Learning lever: role/name/label miss → re-resolve stable id (SPEC §6.6).
+                fallback = self._reresolve_and_click_submit()
                 if fallback.ok:
                     recovered_from_label = True
                     self.store.append(
@@ -207,7 +207,10 @@ class BrowserLoop:
                         EventType.RECOVERY_ATTEMPTED,
                         {
                             "kind": "UI_CHANGED",
-                            "detail": "label miss → stable #submit-invoice-button",
+                            "detail": (
+                                "label/role miss → re-resolve "
+                                "role/name/label → #submit-invoice-button"
+                            ),
                             "idempotency_key": idempotency_key,
                         },
                         step_id=step_id,
@@ -313,16 +316,37 @@ class BrowserLoop:
         raise TypeError(f"Unexpected browser_step content: {type(content)}")
 
     def _click_stable_submit(self) -> ToolResult:
+        """Legacy helper: click via a11y ref for stable id."""
+        return self._reresolve_and_click_submit()
+
+    def _reresolve_and_click_submit(self) -> ToolResult:
+        """Re-observe, re-resolve by role/name/label → stable id, then click."""
+        from ark_operator.domain.models import Observation
+
         obs = self.browser.run({"action": "observe"})
         if not obs.ok:
             return obs
+        # Prefer Playwright role/name/id path (survives ui_rename on labels).
+        try:
+            clicked, _ = self.browser.click_submit_resolved(prefer_label_first=False)
+            if clicked:
+                after = self.browser.run({"action": "observe"})
+                data = dict(after.data or obs.data or {})
+                return ToolResult(
+                    ok=True,
+                    observation=after.observation
+                    or Observation(summary="Re-resolved submit click", data=data),
+                    data=data,
+                )
+        except Exception:
+            pass
         ref = _ref_for_id(obs.data or {}, "submit-invoice-button")
         if not ref:
             return ToolResult(
                 ok=False,
                 failure=Failure(
                     kind=FailureKind.ELEMENT_NOT_FOUND,
-                    message="stable submit button ref missing",
+                    message="stable submit button ref missing after re-resolve",
                     retryable=True,
                 ),
             )

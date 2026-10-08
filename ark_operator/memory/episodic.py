@@ -50,9 +50,16 @@ class EpisodicMemory:
         lessons: list[str] = []
         evidence_ref: str | None = None
 
-        if "UI_CHANGED" in kinds or "label miss" in details or "stable #" in details:
+        if (
+            "UI_CHANGED" in kinds
+            or "label miss" in details
+            or "stable #" in details
+            or "re-resolve" in details
+            or "submit-invoice-button" in details
+        ):
             lessons.append(
-                "Prefer stable element ids (#submit-invoice-button) over button text labels."
+                "Prefer stable element ids (#submit-invoice-button) over button text labels; "
+                "re-resolve by role/name/label then id after UI rename."
             )
             evidence_ref = "RECOVERY_ATTEMPTED:UI_CHANGED"
         if "AUTH_EXPIRED" in kinds:
@@ -104,7 +111,7 @@ class EpisodicMemory:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT run_id, topic, lesson, created_at
+                SELECT run_id, topic, lesson, evidence_ref, created_at
                 FROM episodic_lessons
                 WHERE topic LIKE ? OR lesson LIKE ?
                 ORDER BY id DESC
@@ -115,7 +122,7 @@ class EpisodicMemory:
             if not rows:
                 rows = conn.execute(
                     """
-                    SELECT run_id, topic, lesson, created_at
+                    SELECT run_id, topic, lesson, evidence_ref, created_at
                     FROM episodic_lessons ORDER BY id DESC LIMIT ?
                     """,
                     (top_k,),

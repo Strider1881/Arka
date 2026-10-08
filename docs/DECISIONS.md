@@ -80,5 +80,8 @@ Update when a phase introduces a new default.
 | Verifier browser scrape | Isolated Playwright scrapes invoice table text; API remains structured GT |
 | Episodic distill | Lessons derived from `RECOVERY_ATTEMPTED` / security findings, not hardcoded-only |
 | Evidence on Proof | `collect_run_evidence` + sandboxed `/runs/{id}/evidence?path=` under data dir |
-| Browser dual path | **Real Haiku / `use_browser_loop=True`**: observe a11y → LLM picks one action (`browser_step`) → tool → until postcondition. **FakeLLM CI default**: high-level `submit_invoice` shortcut (still real Playwright writes) for eval speed/cost. Auto: AnthropicClient → loop; FakeLLM → shortcut. Documented in gap-matrix / browser-loop-pass. |
+| Browser dual path | **Real Haiku / `use_browser_loop=True`**: observe a11y → LLM picks one action (`browser_step`) → tool → until postcondition. **FakeLLM CI default**: high-level `submit_invoice` shortcut (still real Playwright writes) for eval speed/cost. Auto: AnthropicClient → loop; FakeLLM → shortcut. Documented in README + ARCHITECTURE + gap-matrix / browser-loop-pass. |
 | BrowserLoop ownership | `runtime/browser_loop.py` + `Executor.run_browser_submit`; pipeline clearance / `IrreversibleLedger` / recovery / verifier unchanged |
+| Observation-driven PLAN_REVISED | `runtime/plan_revision.py` emits reason + next_steps on UI_RENAME / WRONG_PAGE / MISSING_PO / AUTH_EXPIRED (not cosmetic description tweaks) |
+| Details observability | `LLM_USAGE` events + Details usage summary (tokens/cost/tool calls/plan revisions); main path stays Handoff→Work→Proof |
+| UI re-resolve | `BrowserTool.re_resolve` / `click_submit_resolved`: role → name/label → stable `#submit-invoice-button`; episodic lessons flip `prefer_label_first` |

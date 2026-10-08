@@ -44,18 +44,25 @@ def test_second_run_fewer_recoveries_with_lessons(
             pipe = InvoicePipeline(store, build_default_fake_llm(), cfg, episodic=episodic)
             result = pipe.run("Process invoices")
             assert result.state.value == "COMPLETE", result.report
-            recoveries = sum(
-                1
-                for e in store.list_for_run(result.run_id)
-                if e.type == EventType.RECOVERY_ATTEMPTED
-            )
-            return recoveries
+            events = store.list_for_run(result.run_id)
+            recoveries = sum(1 for e in events if e.type == EventType.RECOVERY_ATTEMPTED)
+            revisions = [
+                e
+                for e in events
+                if e.type == EventType.PLAN_REVISED and e.payload.get("kind") == "UI_RENAME"
+            ]
+            return recoveries, revisions
 
-        first = run_once("r1")
+        first, revs1 = run_once("r1")
         assert episodic.count() >= 1
         assert first >= 1, "run1 should recover from renamed Submit label"
-        second = run_once("r2")
+        assert revs1, "run1 must emit observation-driven PLAN_REVISED (UI_RENAME)"
+        assert revs1[0].payload.get("reason")
+        assert revs1[0].payload.get("next_steps")
+        second, _revs2 = run_once("r2")
         assert second < first, f"run2 should improve: first={first} second={second}"
         assert episodic.count() >= 3
+        lessons = episodic.retrieve("stable", top_k=3)
+        assert any("stable" in str(x.get("lesson", "")).lower() for x in lessons)
     finally:
         server.should_exit = True

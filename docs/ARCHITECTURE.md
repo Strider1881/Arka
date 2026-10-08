@@ -53,7 +53,14 @@ flowchart LR
   Observe --> Done{postcondition / budget / stall}
 ```
 
-Dual path: **Anthropic / `use_browser_loop=True`** uses the loop above; **FakeLLM CI** keeps high-level `submit_invoice` (real Playwright) for eval speed. Clearance + `IrreversibleLedger` wrap both paths.
+### Dual path (honest)
+
+| Path | Trigger | Writes |
+|------|---------|--------|
+| Haiku a11y loop | AnthropicClient / `use_browser_loop=True` | One LLM-chosen action at a time from a11y refs |
+| FakeLLM CI shortcut | default `make test` / `make eval` | High-level `submit_invoice` (still real Playwright) |
+
+Clearance + `IrreversibleLedger` + independent verifier wrap **both** paths. Policy/verify never go through FakeLLM.
 
 ## Package map
 - `ark_operator/runtime` — orchestrator, pipeline, browser_loop, executor, recovery, budgets

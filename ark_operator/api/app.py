@@ -206,11 +206,20 @@ def create_operator_app() -> FastAPI:
 
     @app.get("/runs/{run_id}/details", response_class=HTMLResponse)
     def details(request: Request, run_id: str) -> HTMLResponse:
+        from ark_operator.runtime.llm_usage import summarize_usage
+
         store = get_store()
+        events = store.list_for_run(run_id)
+        timeline = replay_run(store, run_id)
         return templates.TemplateResponse(
             request,
             "details.html",
-            {"request": request, "run_id": run_id, "timeline": replay_run(store, run_id)},
+            {
+                "request": request,
+                "run_id": run_id,
+                "timeline": timeline,
+                "usage": summarize_usage(events),
+            },
         )
 
     @app.get("/runs/{run_id}/events")

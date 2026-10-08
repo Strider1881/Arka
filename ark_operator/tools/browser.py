@@ -320,6 +320,80 @@ class BrowserTool(BaseTool):
             ok=True, observation=Observation(summary=f"Pressed {key}", data=obs), data=obs
         )
 
+    def re_resolve(
+        self,
+        *,
+        role: str | None = None,
+        name: str | None = None,
+        label: str | None = None,
+        element_id: str | None = None,
+        timeout_ms: int = 1500,
+    ) -> Any | None:
+        """Re-resolve a control by role/name/label then stable id (SPEC §6.6)."""
+        page = self._ensure()
+        # 1) role + accessible name
+        if role and name:
+            try:
+                loc = page.get_by_role(role, name=re.compile(rf"^{re.escape(name)}$", re.I))
+                if loc.count() > 0:
+                    return loc.first
+            except Exception:
+                pass
+        # 2) label text (form controls)
+        if label:
+            try:
+                loc = page.get_by_label(re.compile(re.escape(label), re.I))
+                if loc.count() > 0:
+                    return loc.first
+            except Exception:
+                pass
+        # 3) name= attribute
+        if name:
+            try:
+                loc = page.locator(f"[name={name!r}]")
+                if loc.count() > 0 and loc.first.is_visible():
+                    return loc.first
+            except Exception:
+                pass
+        # 4) stable element id (survives ui_rename)
+        if element_id:
+            try:
+                loc = page.locator(f"#{element_id}")
+                if loc.count() > 0:
+                    return loc.first
+            except Exception:
+                pass
+        _ = timeout_ms
+        return None
+
+    def click_submit_resolved(self, *, prefer_label_first: bool | None = None) -> tuple[bool, bool]:
+        """Click submit via role/name → stable id. Returns (clicked, recovered_from_label)."""
+        page = self._ensure()
+        prefer = self.prefer_label_first if prefer_label_first is None else prefer_label_first
+        recovered = False
+        if prefer:
+            el = self.re_resolve(role="button", name="Submit invoice")
+            if el is not None:
+                try:
+                    el.click(timeout=1500)
+                    return True, False
+                except Exception:
+                    pass
+            # Label miss / rename — fall through to stable id.
+            recovered = True
+            self.label_fallbacks += 1
+        el = self.re_resolve(
+            role="button",
+            name="Submit invoice",
+            element_id="submit-invoice-button",
+        )
+        if el is None:
+            # Last resort: raw id selector (ids stay stable under ui_rename).
+            page.click("#submit-invoice-button")
+            return True, recovered
+        el.click(timeout=3000)
+        return True, recovered
+
     def _submit_invoice(self, args: dict[str, Any]) -> ToolResult:
         """High-level portal submit using stable element ids (survives ui_rename)."""
         page = self._ensure()
@@ -338,19 +412,7 @@ class BrowserTool(BaseTool):
             page.fill("#invoice_date", str(args["invoice_date"]))
         if args.get("attachment_name"):
             page.fill("#attachment_name", str(args["attachment_name"]))
-        recovered_from_label = False
-        if self.prefer_label_first:
-            try:
-                page.get_by_role("button", name=re.compile(r"^Submit invoice$", re.I)).click(
-                    timeout=1500
-                )
-            except Exception:
-                # UI_CHANGED / renamed label — recover via stable element id (SPEC §6.6).
-                self.label_fallbacks += 1
-                recovered_from_label = True
-                page.click("#submit-invoice-button")
-        else:
-            page.click("#submit-invoice-button")
+        _, recovered_from_label = self.click_submit_resolved()
         page.wait_for_timeout(400)
         after = self._screenshot(f"after_submit_{args.get('invoice_number', 'inv')}")
         obs = self._observe()

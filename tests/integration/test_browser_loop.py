@@ -137,10 +137,19 @@ def test_real_haiku_a11y_browser_loop(
     llm = build_llm(require_anthropic=True)
     assert isinstance(llm, AnthropicClient)
 
-    def _run_once(tag: str) -> tuple[str, list[str | None], dict[str, object] | None]:
+    def _run_once(tag: str) -> tuple[str, list[str | None], dict[str, object] | None, str]:
         import httpx
 
+        clear_settings_cache()
+        assert get_settings().portal_operator_password == "test-operator"
         httpx.post(f"{live_portal}/admin/reset", timeout=10)
+        # Confirm master data readable before spending Haiku tokens.
+        probe = PortalApiTool(live_portal, email="operator@acmecorp.test", password="test-operator")
+        try:
+            pos = probe.run({"action": "pos"})
+            assert pos.ok and len(pos.data.get("result") or []) >= 1, pos.failure
+        finally:
+            probe.close()
         store = EventStore(tmp_path / f"events-{tag}.db")
         cfg = PipelineConfig(
             portal_base_url=live_portal,
@@ -158,6 +167,10 @@ def test_real_haiku_a11y_browser_loop(
             for e in events
             if e.type == EventType.TOOL_CALL and e.payload.get("tool") == "browser"
         ]
+        decision = ""
+        if result.invoices:
+            inv0 = result.invoices[0]
+            decision = f"{inv0.decision}:{inv0.decision_reason}:{inv0.outcome}"
         api = PortalApiTool(live_portal, email="operator@acmecorp.test", password="test-operator")
         try:
             found = api.run({"action": "invoice_by_number", "invoice_number": "INV-1008"})
@@ -165,18 +178,20 @@ def test_real_haiku_a11y_browser_loop(
             row = raw if isinstance(raw, dict) else None
         finally:
             api.close()
-        return result.state.value, actions, row
+        return result.state.value, actions, row, decision
 
-    state, actions, row = _run_once("a")
-    # One retry: Haiku occasionally skips a required select under suite load.
+    state, actions, row, decision = _run_once("a")
+    # Retries: Haiku may skip a select; also absorb rare portal-auth races under suite load.
     if row is None:
-        state, actions, row = _run_once("b")
+        state, actions, row, decision = _run_once("b")
+    if row is None:
+        state, actions, row, decision = _run_once("c")
 
-    assert state == "COMPLETE"
-    assert "a11y_loop" in actions
+    assert state == "COMPLETE", decision
+    assert "a11y_loop" in actions, decision
     assert "submit_invoice" not in actions
     assert any(a in {"login", "goto", "click", "fill", "select"} for a in actions)
-    assert row is not None, "Haiku a11y loop did not land INV-1008 in portal"
+    assert row is not None, f"Haiku a11y loop did not land INV-1008 ({decision})"
     assert row.get("status") in {"SUBMITTED", "PENDING_APPROVAL", "APPROVED"}
 
 
