@@ -53,7 +53,7 @@ eval:
 
 # Real Anthropic Haiku subset (a11y loop). Requires ANTHROPIC_API_KEY in .env.
 # Never falls back to FakeLLM. RPA repair after a11y miss is disabled.
-# Default scenarios: 01-happy 03-session-expiry 04-ui-rename 05/06-approval.
+# Default scenarios: 06/05-approval 04-ui-rename 03-session 01-happy (narrowed).
 # Writes evals/results/summary-llm.md (gitignored live run; template committed).
 eval-llm:
 	uv run python -m evals.runner --llm

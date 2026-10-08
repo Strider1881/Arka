@@ -38,13 +38,18 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 EVAL_ADMIN_TOKEN = "eval-admin-token"
 
 # Real-Haiku subset for `make eval-llm` (a11y loop; no FakeLLM).
+# Smaller scenarios first; narrowed happy last (full-12 Haiku a11y is too slow/costly).
 DEFAULT_LLM_SCENARIOS = [
-    "01-happy",
-    "03-session-expiry",
-    "04-ui-rename",
-    "05-approval-granted",
     "06-approval-rejected",
+    "05-approval-granted",
+    "04-ui-rename",
+    "03-session-expiry",
+    "01-happy",
 ]
+
+# FakeLLM CI still runs all 12 inbox PDFs for 01-happy. Real-LLM path narrows to a
+# few clean SUBMIT invoices so Haiku a11y stays tractable.
+LLM_HAPPY_INVOICE_FILTER = ["INV-1001", "INV-1002", "INV-1008"]
 
 
 def _free_port() -> int:
@@ -181,12 +186,15 @@ def run_scenario(
         episodic = EpisodicMemory(scenario_dir / "episodic.db")
         episodic.clear()
         auto = scenario.get("auto_approve")
+        invoice_filter = scenario.get("invoice_filter")
+        if real_llm and scenario["id"] == "01-happy" and not invoice_filter:
+            invoice_filter = list(LLM_HAPPY_INVOICE_FILTER)
         cfg = PipelineConfig(
             portal_base_url=base,
             data_dir=scenario_dir,
             headless=True,
             auto_approve=auto,
-            invoice_filter=scenario.get("invoice_filter"),
+            invoice_filter=invoice_filter,
             use_browser_loop=use_browser_loop,
             # Real-LLM path: no silent RPA repair after a11y miss.
             allow_rpa_repair=not real_llm,
@@ -211,9 +219,11 @@ def run_scenario(
         wall = time.monotonic() - t0
         metrics = score(
             result,
-            invoice_filter=scenario.get("invoice_filter"),
+            invoice_filter=invoice_filter,
             store=store,
         )
+        if invoice_filter:
+            metrics["invoice_filter"] = list(invoice_filter)
         metrics["wall_time"] = wall
         metrics["scenario"] = scenario["id"]
         metrics["run_id"] = result.run_id
@@ -239,12 +249,21 @@ def run_all(
     data_dir = RESULTS_DIR / ("_runs_llm" if real_llm else "_runs")
     data_dir.mkdir(exist_ok=True)
     results: list[dict[str, Any]] = []
-    for scenario in load_scenarios():
-        if only and scenario["id"] not in only:
-            continue
+    by_id = {s["id"]: s for s in load_scenarios()}
+    if only:
+        ordered = [by_id[sid] for sid in only if sid in by_id]
+        missing = [sid for sid in only if sid not in by_id]
+        for sid in missing:
+            print(f"WARNING: unknown scenario id {sid!r}", file=sys.stderr)
+    else:
+        ordered = list(by_id.values())
+    for scenario in ordered:
         path = "a11y_loop" if use_browser_loop else "rpa_shortcut"
         llm_label = "Haiku" if real_llm else "FakeLLM"
-        print(f"Running scenario {scenario['id']} ({path}, {llm_label})...")
+        extra = ""
+        if real_llm and scenario["id"] == "01-happy" and not scenario.get("invoice_filter"):
+            extra = f" filter={LLM_HAPPY_INVOICE_FILTER}"
+        print(f"Running scenario {scenario['id']} ({path}, {llm_label}){extra}...")
         metrics = run_scenario(
             scenario,
             data_dir=data_dir,

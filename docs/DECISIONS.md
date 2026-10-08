@@ -74,7 +74,8 @@ Update when a phase introduces a new default.
 | FakeLLM boundary | Scripts understand/plan **structure** only; never policy, portal writes, or verify |
 | Settings source | `get_settings()` loads repo-root `.env` + process env; CLI/UI/secrets/redact use it |
 | Real-LLM P4 proof | `tests/integration/test_real_llm_p4.py` (skip without key) |
-| Dual eval targets | `make eval` = FakeLLM 12/12 CI; `make eval-llm` = real Haiku subset (happy / session / ui-rename / approval±) via `evals.runner --llm`. No FakeLLM fallback; exits 2 if key missing. |
+| Dual eval targets | `make eval` = FakeLLM 12/12 CI; `make eval-llm` = real Haiku subset (approval± / ui-rename / session / narrowed happy) via `evals.runner --llm`. No FakeLLM fallback; exits 2 if key missing. |
+| eval-llm happy filter | Real-LLM `01-happy` uses `INV-1001/1002/1008` only — full-12 Haiku a11y is too slow/costly; FakeLLM happy still processes all 12. |
 | RPA repair on eval-llm | `PipelineConfig.allow_rpa_repair=False` for real-LLM eval so verifier misses are not silently healed by `submit_invoice`. FakeLLM CI still allows repair. |
 | eval-llm artifacts | Live `evals/results/summary-llm.md` gitignored; committed template `summary-llm.template.md`. |
 | Budget partial exit | `EXECUTE → REPORT` legal for honest partial report when budgets exhaust |

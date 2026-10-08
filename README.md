@@ -87,13 +87,14 @@ Latest run → [evals/results/summary.md](evals/results/summary.md):
 
 ### Real Haiku (`make eval-llm`)
 
-Subset only (cost): **01-happy**, **03-session-expiry**, **04-ui-rename**, **05-approval-granted**, **06-approval-rejected**. Template → [evals/results/summary-llm.template.md](evals/results/summary-llm.template.md); live table after `make eval-llm` → `evals/results/summary-llm.md` (gitignored).
+Subset only (cost/time): **06-approval-rejected**, **05-approval-granted**, **04-ui-rename**, **03-session-expiry**, **01-happy**. Template → [evals/results/summary-llm.template.md](evals/results/summary-llm.template.md); live table after `make eval-llm` → `evals/results/summary-llm.md` (gitignored).
 
 | Aggregate | Claim |
 |-----------|-------|
-| Headline | **Subset measured under real Haiku a11y loop** — not a 12/12 CI claim |
+| Headline | **Subset measured under real Haiku a11y loop** — not a FakeLLM 12/12 claim |
 | LLM | Anthropic `OPERATOR_MODEL` (default `claude-haiku-5-5`); fails if key missing |
 | Repair | Silent RPA repair **off** on this path |
+| `01-happy` under Haiku | Narrowed to **INV-1001, INV-1002, INV-1008** (clean SUBMIT). Full-12 FakeLLM happy remains on `make eval` — full-12 Haiku a11y is too slow/costly for this target. |
 
 Fill the live aggregate from your latest `summary-llm.md` after a keyed run.
 
