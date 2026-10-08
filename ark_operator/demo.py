@@ -16,6 +16,7 @@ from company_world.portal.app import create_app
 from company_world.portal.db import reset_database
 from company_world.portal.faults import fault_state
 
+from ark_operator.config import clear_settings_cache
 from ark_operator.domain.enums import InvoiceDecision, InvoiceOutcome
 from ark_operator.domain.models import InvoiceRecord
 from ark_operator.events.store import EventStore
@@ -49,48 +50,72 @@ def main() -> int:
       2) Approval pause on INV-1003 → seeded decide → resume submit
       3) Verifier sabotage catch (false claim without portal row)
       4) Happy submit INV-1001 with proof
+
+    Always spins a dedicated portal with known credentials so `make demo` is
+    self-contained (set DEMO_USE_EXISTING_PORTAL=1 to attach to PORTAL_BASE_URL).
     """
     data = Path("data/demo")
     data.mkdir(parents=True, exist_ok=True)
-    password = os.environ.get("PORTAL_OPERATOR_PASSWORD", "demo-operator")
+    password = "demo-operator"
+    manager = "demo-manager"
     admin = os.environ.get("PORTAL_ADMIN_TOKEN", "demo-admin-token")
     os.environ["PORTAL_OPERATOR_PASSWORD"] = password
-    os.environ["PORTAL_MANAGER_PASSWORD"] = os.environ.get(
-        "PORTAL_MANAGER_PASSWORD", "demo-manager"
-    )
+    os.environ["PORTAL_MANAGER_PASSWORD"] = manager
     os.environ["PORTAL_ADMIN_TOKEN"] = admin
+    clear_settings_cache()
 
-    # Prefer an already-running portal when PORTAL_BASE_URL is reachable; else spawn one.
-    base = os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765").rstrip("/")
     server: uvicorn.Server | None = None
-    try:
-        httpx.get(f"{base}/health", timeout=0.5).raise_for_status()
-        print(f"[demo] using existing portal {base}")
-    except Exception:
+    use_existing = os.environ.get("DEMO_USE_EXISTING_PORTAL", "").strip() in {
+        "1",
+        "true",
+        "yes",
+    }
+    base = os.environ.get("PORTAL_BASE_URL", "http://127.0.0.1:8765").rstrip("/")
+
+    if use_existing:
+        try:
+            httpx.get(f"{base}/health", timeout=0.5).raise_for_status()
+            print(f"[demo] using existing portal {base}")
+        except Exception as exc:
+            print(f"[demo] existing portal unavailable ({exc}); spawning dedicated portal")
+            use_existing = False
+
+    if not use_existing:
         port = _free_port()
         db = data / "portal.db"
         os.environ["PORTAL_DB_PATH"] = str(db)
         fault_state.enabled = set()
-        reset_database(db, operator_password=password, manager_password="demo-manager")
+        fault_state.flaky_test_force = False
+        fault_state.session_request_counts.clear()
+        fault_state.flaky_fired.clear()
+        fault_state.submitted_fingerprints.clear()
+        reset_database(db, operator_password=password, manager_password=manager)
         app = create_app(reset_db=False)
         config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
         server = uvicorn.Server(config)
         threading.Thread(target=server.run, daemon=True).start()
         base = f"http://127.0.0.1:{port}"
         _wait_health(base, server)
-        print(f"[demo] started portal {base}")
+        print(f"[demo] started dedicated portal {base}")
 
     headers = {"x-portal-admin-token": admin}
-    store = EventStore(data / "events.db")
+    # Fresh event store each demo run.
+    events_path = data / "events.db"
+    if events_path.exists():
+        events_path.unlink()
+    store = EventStore(events_path)
     llm = build_default_fake_llm()
 
     print("\n=== 1) Fault + recovery (ui_rename / INV-1012) ===")
-    httpx.post(
+    r = httpx.post(
         f"{base}/admin/faults",
         headers=headers,
         json={"faults": ["ui_rename"], "reset_counters": True},
         timeout=5,
     )
+    if r.status_code != 200:
+        print(f"  ERROR: admin faults {r.status_code} {r.text[:200]}", file=sys.stderr)
+        return 1
     cfg = PipelineConfig(
         portal_base_url=base,
         data_dir=data / "fault",
@@ -104,6 +129,9 @@ def main() -> int:
     )
     verified = bool(r1.verification and r1.verification.passed)
     print(f"  state={r1.state.value} recoveries={recoveries} verified={verified}")
+    if r1.state.value != "COMPLETE" or not verified:
+        print("  ERROR: fault recovery step failed", file=sys.stderr)
+        return 1
 
     print("\n=== 2) Approval pause → seeded decide (INV-1003) ===")
     httpx.post(
@@ -133,8 +161,12 @@ def main() -> int:
     )
     r2b = InvoicePipeline(store, llm, cfg2).resume(r2.run_id)
     print(
-        f"  resumed state={r2b.state.value} verified={r2b.verification and r2b.verification.passed}"
+        f"  resumed state={r2b.state.value} "
+        f"verified={bool(r2b.verification and r2b.verification.passed)}"
     )
+    if r2b.state.value != "COMPLETE":
+        print("  ERROR: approval resume failed", file=sys.stderr)
+        return 1
 
     print("\n=== 3) Verifier catch (sabotage: claim completed without portal row) ===")
     fake = InvoiceRecord(
@@ -148,7 +180,6 @@ def main() -> int:
     )
     verifier = Verifier(base, evidence_dir=data / "sabotage-evidence", password=password)
     try:
-        # Also sabotage browser scrape emptiness for submit-class hard-fail.
         verification = verifier.verify_invoices([fake])
     finally:
         verifier.close()
@@ -178,8 +209,17 @@ def main() -> int:
         )
     )
 
-    print("\n[demo] 90s story complete.")
-    return 0 if r3.state.value == "COMPLETE" and r1.state.value == "COMPLETE" else 1
+    ok = (
+        r1.state.value == "COMPLETE"
+        and r2b.state.value == "COMPLETE"
+        and r3.state.value == "COMPLETE"
+        and bool(r3.verification and r3.verification.passed)
+        and not verification.passed
+    )
+    print("\n[demo] 90s story complete." if ok else "\n[demo] FAILED", file=sys.stdout)
+    if server is not None:
+        server.should_exit = True
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

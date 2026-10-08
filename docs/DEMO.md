@@ -16,6 +16,9 @@ export PORTAL_ADMIN_TOKEN=demo-admin-token
 make demo
 ```
 
+Spawns a **dedicated** portal with known demo credentials (self-contained).  
+Set `DEMO_USE_EXISTING_PORTAL=1` only if you intentionally want `PORTAL_BASE_URL`.
+
 Automated narrative:
 
 1. **Fault + recovery** — enable `ui_rename`, process INV-1012 via a11y loop; expect `RECOVERY_ATTEMPTED` + proof.

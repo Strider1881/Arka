@@ -56,7 +56,7 @@ eval-rpa:
 	uv run python -m evals.runner --rpa
 
 # 90s story: fault + approval pause/seeded decide + verifier catch/proof.
+# Self-contained: spawns its own portal (ignore PORTAL_BASE_URL unless DEMO_USE_EXISTING_PORTAL=1).
 demo: invoices
-	PORTAL_BASE_URL=http://127.0.0.1:$(PORTAL_PORT) \
 	PORTAL_ADMIN_TOKEN=$${PORTAL_ADMIN_TOKEN:-demo-admin-token} \
 	uv run python -m ark_operator.demo
