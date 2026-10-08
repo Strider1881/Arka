@@ -102,8 +102,8 @@ See freeze ship report for the latest individual Haiku runs. Do **not** treat an
 | `04-ui-rename` | PASS — first-choice adaptation (not fail→replan) |
 | `05-approval-granted` | PASS — approval then submit |
 | `11-missing-po` / `09-blocked` / `10-injection` | PASS (clarify/refuse/security) |
-| `01-happy` (narrowed) | Can budget-exhaust if select a11y feedback is opaque; select `value=` observe fix shipped |
-| `03-session-expiry` | Can fail without AUTH_EXPIRED if model stalls before expiry recovery |
+| `01-happy` (narrowed) | **PASS** after select `value=` observe + option-token select parsing |
+| `03-session-expiry` | Not claimed green on latest freeze Haiku subset (prior stall / no AUTH_EXPIRED) |
 
 `01-happy` under Haiku uses **INV-1001, INV-1002, INV-1008** only. Full-12 FakeLLM happy stays on `make eval`.
 
