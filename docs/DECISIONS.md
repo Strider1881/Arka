@@ -99,3 +99,17 @@ Update when a phase introduces a new default.
 | Observation-driven PLAN_REVISED | `runtime/plan_revision.py` emits reason + next_steps on UI_RENAME / WRONG_PAGE / MISSING_PO / AUTH_EXPIRED. Revised args (`prefer_stable_ids`, `relogin_on_auth_expired`, `recover_wrong_page` / `goto`) are consumed via `browser_prefs_from_plan` → pipeline browser setup / `BrowserLoop`. |
 | Details observability | `LLM_USAGE` events + Details usage summary (tokens/cost/tool calls/plan revisions); main path stays Handoff→Work→Proof |
 | UI re-resolve | `BrowserTool.re_resolve` / `click_submit_resolved`: role → name/label → stable `#submit-invoice-button`; episodic lessons and PLAN_REVISED `prefer_stable_ids` flip `prefer_label_first` |
+
+## Submission hardening (post-freeze)
+
+| Topic | Choice |
+|-------|--------|
+| Product name | **Operator** in UI/docs/README. Package stays **`ark_operator/`** (stdlib clash). |
+| INV-1003 proof outcome | **`SUBMITTED_AWAITING_MANAGER`** / label "Submitted, awaiting manager approval" after operator clearance + portal `PENDING_APPROVAL`. Not the same as manager `APPROVED`. |
+| EventStore | Single **`OPERATOR_DB_PATH`** for CLI + UI (`OPERATOR_DATA_DIR` for artifacts). |
+| Policy SSoT | Threshold / tolerance / blocked / aliases from **`company_world/knowledge/*.md`** via `policy/kb_params.py`. **`rules.yaml` permissions only**. |
+| Default model | **`claude-haiku-5-5`** (Anthropic docs, active). Preflight allowlist fail-closed for real-LLM paths; never FakeLLM fallback on `--llm`. |
+| FakeLLM docs | Labeled **deterministic CI / harness correctness** — not a real-model score. |
+| `make eval-llm-full` | 12 scenarios × `EVAL_LLM_N` (default 3). Requires key; stamps `summary-llm.md`. |
+| Orchestrator | Allocates `run_id` only on the hiring path; `run_until_idle` is test helper theater (honest docs). Pipeline split skipped (too risky for submission). |
+| Phase E | Second declarative procedure **deferred** (document in LIMITATIONS / acceptance). |

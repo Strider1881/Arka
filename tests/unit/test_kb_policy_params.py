@@ -32,6 +32,24 @@ def test_assert_rules_rejects_kb_keys() -> None:
         assert_rules_permissions_only({"approval_threshold_usd": 1, "tool_permissions": {}})
 
 
+def test_kb_params_missing_threshold_fails(tmp_path: Path) -> None:
+    (tmp_path / "approval_policy.md").write_text("# no threshold\n", encoding="utf-8")
+    (tmp_path / "tolerance_policy.md").write_text("at most **2%** here\n", encoding="utf-8")
+    (tmp_path / "vendor_policy.md").write_text("**Acme** is BLOCKED\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="threshold"):
+        load_policy_params(tmp_path)
+
+
+def test_kb_params_missing_tolerance_fails(tmp_path: Path) -> None:
+    (tmp_path / "approval_policy.md").write_text(
+        "greater than $5,000.00 USD requires approval\n", encoding="utf-8"
+    )
+    (tmp_path / "tolerance_policy.md").write_text("# no pct\n", encoding="utf-8")
+    (tmp_path / "vendor_policy.md").write_text("**Acme** is BLOCKED\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="tolerance"):
+        load_policy_params(tmp_path)
+
+
 def test_threshold_change_in_kb_changes_decision(tmp_path: Path) -> None:
     """Raising the KB threshold above INV-1003 amount clears the approval gate."""
     src = Path("company_world/knowledge")

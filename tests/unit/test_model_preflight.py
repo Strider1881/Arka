@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import pytest
+from ark_operator.config import clear_settings_cache
 from ark_operator.llm.model_preflight import (
     ALLOWED_OPERATOR_MODELS,
     preflight_operator_model,
     require_valid_operator_model,
 )
 from ark_operator.runtime.pipeline import build_llm
-from ark_operator.config import clear_settings_cache
 
 
 def test_haiku_55_is_allowlisted() -> None:

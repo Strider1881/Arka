@@ -37,7 +37,14 @@ class RunContext:
 
 
 class Orchestrator:
-    """Drives INTAKE -> ... -> COMPLETE (or ESCALATED/FAILED)."""
+    """Run-id allocator + optional scripted phase driver (tests / helpers).
+
+    Hiring demo production path: ``InvoicePipeline`` owns Understand→Plan→Execute→
+    Verify→Report via the FSM. ``Orchestrator.start()`` is used only to allocate a
+    ``run_id`` and append ``RUN_STARTED``. ``run_until_idle`` + phase handlers are
+    retained for unit tests (``scripted_demo_handlers``) — they are **not** the
+    measured invoice operator control plane. See DECISIONS.md.
+    """
 
     def __init__(
         self,

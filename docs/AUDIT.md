@@ -1,7 +1,9 @@
 # Engineering audit — CentrAlign Founding Engineer take-home (Arka / Operator)
 
-**Subject:** branch `cursor/p0-scaffold-27a9` · PR https://cursor.com/codebase/sriroop-gadagoju/Arka/pull/1  
-**Method:** Read-only code audit of `/workspace` on that branch. No production code modified.  
+> **Reconcile (submission hardening):** This audit describes the freeze-era architecture. It remains accurate that **`InvoicePipeline` is the control plane** and Orchestrator is mostly run-id allocation — that is intentional and documented in README / DECISIONS / LIMITATIONS. Policy numeric params now load from knowledge markdown (`kb_params.py`); `rules.yaml` is permissions-only. INV-1003 proof outcome is `SUBMITTED_AWAITING_MANAGER`. Do not treat evaluator-steering store notes as product claims.
+
+**Subject:** branch `cursor/p0-scaffold-27a9` (historical) · later `fix/submission-hardening`  
+**Method:** Read-only code audit of `/workspace` on that branch. No production code modified at audit time.  
 **Product claim under test:** Autonomous AI company operator (vague request → completed work with context, tools/browser, human approval, recovery, independent verification). Primary workflow: invoice processing.
 
 ## P0 status (implemented)

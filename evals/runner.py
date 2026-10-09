@@ -411,6 +411,17 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--full",
+        action="store_true",
+        help="With --llm: run all 12 scenarios (make eval-llm-full). Still never FakeLLM.",
+    )
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="With --llm --full: independent repeats per scenario (default 1; make uses 3).",
+    )
+    parser.add_argument(
         "--retries",
         type=int,
         default=1,
@@ -420,19 +431,82 @@ def main() -> None:
     if args.llm and args.rpa:
         print("ERROR: --llm implies a11y loop; do not combine with --rpa.", file=sys.stderr)
         raise SystemExit(2)
+    if args.full and not args.llm:
+        print("ERROR: --full requires --llm.", file=sys.stderr)
+        raise SystemExit(2)
     if args.llm:
         _require_anthropic_key()
-        only = args.only if args.only else list(DEFAULT_LLM_SCENARIOS)
-        results = run_all(
-            only=only,
-            use_browser_loop=True,
-            real_llm=True,
-            retries=max(0, args.retries),
-        )
+        if args.full:
+            only = args.only if args.only else [s["id"] for s in load_scenarios()]
+        else:
+            only = args.only if args.only else list(DEFAULT_LLM_SCENARIOS)
+        repeats = max(1, int(args.repeats))
+        results: list[dict[str, Any]] = []
+        for rep in range(repeats):
+            if repeats > 1:
+                print(f"=== LLM full repeat {rep + 1}/{repeats} ===")
+            batch = run_all(
+                only=only,
+                use_browser_loop=True,
+                real_llm=True,
+                retries=max(0, args.retries),
+            )
+            for row in batch:
+                row = dict(row)
+                row["repeat"] = rep + 1
+                results.append(row)
+        if args.full:
+            _stamp_summary_llm_full(results, repeats=repeats)
+        ok = all(r["task_success"] for r in results) if results else False
     else:
         results = run_all(only=args.only, use_browser_loop=not args.rpa, real_llm=False)
-    ok = all(r["task_success"] for r in results) if results else False
+        ok = all(r["task_success"] for r in results) if results else False
     raise SystemExit(0 if ok else 1)
+
+
+def _stamp_summary_llm_full(results: list[dict[str, Any]], *, repeats: int) -> None:
+    """Overwrite summary-llm.md with a stamped full-suite table (honest aggregates)."""
+    from datetime import UTC, datetime
+
+    model = next(
+        (r.get("operator_model") for r in results if r.get("operator_model")),
+        get_settings().operator_model,
+    )
+    lines = [
+        "# Eval results (real LLM — full suite)",
+        "",
+        f"**Stamped:** {datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}",
+        f"**Measured path:** `a11y_loop + Anthropic ({model}) — make eval-llm-full`",
+        f"**Repeats:** {repeats} × 12 scenarios",
+        "",
+        "No FakeLLM. RPA repair after a11y miss is **disabled**. Numbers are measured — not fabricated.",
+        "",
+        "| scenario | repeat | success | decisions | false_success | unsafe | recoveries | cost_usd |",
+        "|----------|--------|---------|-----------|---------------|--------|------------|----------|",
+    ]
+    for r in results:
+        cost = r.get("cost_usd")
+        cost_s = f"{cost:.4f}" if isinstance(cost, (int, float)) else "—"
+        lines.append(
+            f"| {r.get('scenario', r.get('id', '?'))} | {r.get('repeat', 1)} | "
+            f"{r.get('task_success')} | "
+            f"{r.get('decisions_correct')}/{r.get('decisions_total')} | "
+            f"{r.get('false_success_rate')} | {r.get('unsafe_actions')} | "
+            f"{r.get('recoveries_used', 0)} | {cost_s} |"
+        )
+    n = len(results)
+    succ = sum(1 for r in results if r.get("task_success"))
+    lines.extend(
+        [
+            "",
+            f"**Aggregate task_success:** {succ}/{n}",
+            f"**false_success>0 rows:** {sum(1 for r in results if (r.get('false_success_rate') or 0) > 0)}",
+            f"**unsafe>0 rows:** {sum(1 for r in results if (r.get('unsafe_actions') or 0) > 0)}",
+            "",
+        ]
+    )
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    (RESULTS_DIR / "summary-llm.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 if __name__ == "__main__":

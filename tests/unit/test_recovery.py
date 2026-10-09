@@ -12,6 +12,10 @@ def test_classify_and_policy_block() -> None:
     rec = Recovery(max_transient_retries=2)
     assert rec.classify(None, http_status=503) == FailureKind.TRANSIENT
     assert rec.classify(None) == FailureKind.UNRECOVERABLE
+    assert (
+        rec.classify(Failure(kind=FailureKind.AUTH_EXPIRED, message="x", retryable=True))
+        == FailureKind.AUTH_EXPIRED
+    )
     f = Failure(kind=FailureKind.POLICY_BLOCK, message="denied")
     assert rec.handle("k", f) is f
 

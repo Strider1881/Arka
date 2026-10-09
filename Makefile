@@ -1,4 +1,4 @@
-.PHONY: setup portal run test lint eval eval-llm eval-rpa demo invoices ui
+.PHONY: setup portal run test lint eval eval-llm eval-llm-full eval-rpa demo invoices ui
 
 PORTAL_PORT ?= 8765
 OPERATOR_PORT ?= 8877
@@ -57,6 +57,18 @@ eval:
 # Writes evals/results/summary-llm.md (gitignored live run; template committed).
 eval-llm:
 	uv run python -m evals.runner --llm
+
+# Full 12 scenarios × N repeats (default N=3) under real Anthropic Haiku.
+# Requires ANTHROPIC_API_KEY. Never FakeLLM. Costly — not CI.
+# Usage: make eval-llm-full   or   EVAL_LLM_N=1 make eval-llm-full
+eval-llm-full:
+	@if [ -z "$$ANTHROPIC_API_KEY" ] && ! grep -qE '^ANTHROPIC_API_KEY=.+' .env 2>/dev/null; then \
+		echo "TODO: ANTHROPIC_API_KEY missing — cannot run make eval-llm-full."; \
+		echo "Exact command when key is available:"; \
+		echo "  EVAL_LLM_N=$${EVAL_LLM_N:-3} uv run python -m evals.runner --llm --full --repeats $${EVAL_LLM_N:-3}"; \
+		exit 2; \
+	fi
+	uv run python -m evals.runner --llm --full --repeats $${EVAL_LLM_N:-3}
 
 # Optional micro-benchmark: high-level submit_invoice RPA shortcut.
 eval-rpa:

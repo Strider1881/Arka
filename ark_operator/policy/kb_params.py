@@ -91,7 +91,7 @@ def load_policy_params(knowledge_dir: Path | None = None) -> PolicyParams:
     )
 
 
-def assert_rules_permissions_only(rules: dict) -> None:
+def assert_rules_permissions_only(rules: dict[str, object]) -> None:
     """Fail closed if rules.yaml still embeds KB-owned numeric params."""
     forbidden = {"approval_threshold_usd", "tolerance_pct", "blocked_vendors", "vendor_aliases"}
     present = sorted(k for k in forbidden if k in rules)
