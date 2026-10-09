@@ -15,10 +15,16 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
-def _clear_settings_cache() -> Iterator[None]:
-    """Ensure Settings re-read env after monkeypatch (and never leak keys across tests)."""
+def _clear_settings_cache(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Ensure Settings re-read env after monkeypatch (and never leak keys across tests).
+
+    Also clear Operator UI Basic Auth so a local deploy.env / .env with demo
+    credentials cannot 401 integration tests that expect an ungated UI.
+    """
     from ark_operator.config import clear_settings_cache
 
+    monkeypatch.setenv("OPERATOR_UI_BASIC_AUTH_USER", "")
+    monkeypatch.setenv("OPERATOR_UI_BASIC_AUTH_PASS", "")
     clear_settings_cache()
     yield
     clear_settings_cache()
