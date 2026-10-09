@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ark_operator.domain.enums import (
+    SUCCESSFUL_OUTCOMES,
     FailureKind,
     InvoiceDecision,
     InvoiceOutcome,
@@ -613,7 +614,11 @@ class InvoicePipeline:
                         else InvoiceOutcome.NEEDS_ATTENTION
                     )
                 elif inv.decision == InvoiceDecision.NEEDS_APPROVAL:
-                    if not verification.passed:
+                    # Operator clearance + portal PENDING_APPROVAL is success for us;
+                    # manager queue approval is a separate human step outside this run.
+                    if verification.passed:
+                        inv.outcome = InvoiceOutcome.SUBMITTED_AWAITING_MANAGER
+                    else:
                         inv.outcome = InvoiceOutcome.NEEDS_ATTENTION
 
             go(RunState.REPORT)
@@ -920,9 +925,7 @@ class InvoicePipeline:
     def _portal_already_has_invoice(self, inv: InvoiceRecord) -> bool:
         """True when portal already holds this invoice write (number + attachment/vendor)."""
         api = self._portal_api or self.registry.get("portal_api")
-        found = api.run(
-            {"action": "invoice_by_number", "invoice_number": inv.invoice_number}
-        )
+        found = api.run({"action": "invoice_by_number", "invoice_number": inv.invoice_number})
         if not found.ok:
             return False
         row = found.data.get("result")
@@ -1309,14 +1312,14 @@ class InvoicePipeline:
         )
         for inv in invoices:
             outcome = inv.outcome or InvoiceOutcome.NEEDS_ATTENTION
-            # Operator may only report "completed" when the independent verifier passes (SPEC §7).
-            if outcome == InvoiceOutcome.COMPLETED and not verification.passed:
+            # Operator may only report success-class outcomes when the independent verifier passes.
+            if outcome in SUCCESSFUL_OUTCOMES and not verification.passed:
                 outcome = InvoiceOutcome.NEEDS_ATTENTION
                 inv.outcome = outcome
-            if partial and outcome == InvoiceOutcome.COMPLETED:
+            if partial and outcome in SUCCESSFUL_OUTCOMES:
                 outcome = InvoiceOutcome.NEEDS_ATTENTION
                 inv.outcome = outcome
-            verified = outcome == InvoiceOutcome.COMPLETED and verification.passed and not partial
+            verified = outcome in SUCCESSFUL_OUTCOMES and verification.passed and not partial
             # Proof rows label the process identity (file stem), not the extracted
             # document number — duplicates share invoice_number but are distinct work units.
             row_id = inv.process_identity()
@@ -1423,21 +1426,27 @@ def build_llm(*, require_anthropic: bool = False) -> LLMClient:
 
     Defaults to Claude Haiku (`OPERATOR_MODEL` / `DEFAULT_OPERATOR_MODEL`).
     Never hardcodes Opus/Sonnet. Raises clearly if a real LLM is required but
-    the key is missing.
+    the key is missing. Real-LLM construction fail-closes on invalid model ids
+    (no FakeLLM fallback).
     """
     from ark_operator.config import get_settings
+    from ark_operator.llm.model_preflight import require_valid_operator_model
 
     settings = get_settings()
     if settings.anthropic_api_key:
+        model = require_valid_operator_model(
+            settings.operator_model, api_key=settings.anthropic_api_key
+        )
         from ark_operator.llm.anthropic_client import AnthropicClient
 
         return AnthropicClient(
             api_key=settings.anthropic_api_key,
-            model=settings.operator_model,
+            model=model,
         )
     if require_anthropic:
         raise RuntimeError(
             "ANTHROPIC_API_KEY is required (set in environment or `.env`; "
-            "see `.env.example`). OPERATOR_MODEL defaults to claude-haiku-5-5."
+            "see `.env.example`). OPERATOR_MODEL defaults to claude-haiku-5-5. "
+            "eval-llm / --llm never falls back to FakeLLM."
         )
     return build_default_fake_llm()

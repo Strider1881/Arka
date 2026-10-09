@@ -106,8 +106,22 @@ INVOICES: list[dict[str, object]] = [
 ]
 
 
+# Fixed CreationDate/ModDate so setup+demo leave a clean git tree across machines.
+_PDF_EPOCH = (2026, 3, 1, 0, 0, 0)
+
+
 def _draw_invoice(path: Path, data: dict[str, object]) -> None:
-    c = canvas.Canvas(str(path), pagesize=letter)
+    # invariant=1 → stable /ID digest (no wall-clock / path entropy).
+    c = canvas.Canvas(str(path), pagesize=letter, invariant=1)
+    doc_number = data.get("document_number", data["number"])
+    c.setTitle(f"Invoice {doc_number}")
+    c.setAuthor("AcmeCorp")
+    c.setCreator("company_world.scripts.make_invoices")
+    c.setProducer("AcmeCorp-deterministic")
+    info = c._doc.info
+    info.creationDate = _PDF_EPOCH
+    info.modDate = _PDF_EPOCH
+
     width, height = letter
     y = height - 72
 
@@ -118,7 +132,6 @@ def _draw_invoice(path: Path, data: dict[str, object]) -> None:
     c.drawString(72, y, "AcmeCorp Accounts Payable — Vendor Invoice")
     y -= 36
 
-    doc_number = data.get("document_number", data["number"])
     lines = [
         f"Invoice Number: {doc_number}",
         f"Vendor: {data['vendor']}",

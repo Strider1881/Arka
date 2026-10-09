@@ -75,6 +75,27 @@ class Confidence(StrEnum):
 
 class InvoiceOutcome(StrEnum):
     COMPLETED = "completed"
+    # Portal write landed as PENDING_APPROVAL; operator work done, manager queue remains.
+    SUBMITTED_AWAITING_MANAGER = "submitted_awaiting_manager"
     NEEDS_ATTENTION = "needs_attention"
     REFUSED = "refused"
     FLAGGED = "flagged"
+
+
+# Outcomes that count as successfully finished operator work (may still await a human).
+SUCCESSFUL_OUTCOMES = frozenset(
+    {InvoiceOutcome.COMPLETED, InvoiceOutcome.SUBMITTED_AWAITING_MANAGER}
+)
+
+
+def outcome_label(outcome: InvoiceOutcome | str) -> str:
+    """Human-readable Proof / checklist label for an invoice outcome."""
+    value = outcome.value if isinstance(outcome, InvoiceOutcome) else str(outcome)
+    labels = {
+        InvoiceOutcome.COMPLETED.value: "Completed",
+        InvoiceOutcome.SUBMITTED_AWAITING_MANAGER.value: "Submitted, awaiting manager approval",
+        InvoiceOutcome.NEEDS_ATTENTION.value: "Needs attention",
+        InvoiceOutcome.REFUSED.value: "Refused",
+        InvoiceOutcome.FLAGGED.value: "Flagged",
+    }
+    return labels.get(value, value.replace("_", " ").capitalize())

@@ -13,7 +13,9 @@ from ark_operator.runtime.pipeline import InvoicePipeline, PipelineConfig, build
 def test_proof_rows_use_attachment_stem_for_duplicate_document_number(tmp_path: Path) -> None:
     """INV-1004.pdf extracts as INV-1001; proof must still show INV-1004 as its own row id."""
     store = EventStore(tmp_path / "events.db")
-    pipe = InvoicePipeline(store, build_default_fake_llm(), PipelineConfig(data_dir=tmp_path / "data"))
+    pipe = InvoicePipeline(
+        store, build_default_fake_llm(), PipelineConfig(data_dir=tmp_path / "data")
+    )
 
     original = InvoiceRecord(
         invoice_number="INV-1001",

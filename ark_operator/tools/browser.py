@@ -196,6 +196,30 @@ class BrowserTool(BaseTool):
                 kind = FailureKind.ELEMENT_NOT_FOUND
             return ToolResult(ok=False, failure=Failure(kind=kind, message=msg, retryable=True))
 
+    def _auth_expired_result(
+        self,
+        obs: dict[str, Any],
+        *,
+        evidence: list[str] | None = None,
+        message: str = "session expired",
+    ) -> ToolResult:
+        self._logged_in = False
+        banners = " ".join(obs.get("banners") or [])
+        return ToolResult(
+            ok=False,
+            failure=Failure(
+                kind=FailureKind.AUTH_EXPIRED,
+                message=banners or message,
+                retryable=True,
+            ),
+            observation=Observation(summary="Auth expired", data=obs, success=False),
+            data={
+                "observation": obs,
+                "evidence": evidence or [],
+                "url": obs.get("url"),
+            },
+        )
+
     def _goto(self, url: str) -> ToolResult:
         page = self._ensure()
         target = url if url.startswith("http") else f"{self.base_url}{url}"
@@ -203,6 +227,11 @@ class BrowserTool(BaseTool):
         page.goto(target, wait_until="domcontentloaded")
         after = self._screenshot("after_goto")
         obs = self._observe()
+        # Session-expiry fault redirects protected pages to /login — surface AUTH_EXPIRED.
+        if "/login" in str(obs.get("url") or "") and "/login" not in target:
+            return self._auth_expired_result(
+                obs, evidence=[before.id, after.id], message="redirected to login"
+            )
         return ToolResult(
             ok=True,
             observation=Observation(summary=f"Navigated to {obs['url']}", data=obs),
@@ -277,16 +306,8 @@ class BrowserTool(BaseTool):
                 data={"observation": obs, "evidence": [before.id, after.id], "url": obs["url"]},
             )
         if "/login" in obs["url"]:
-            self._logged_in = False
-            return ToolResult(
-                ok=False,
-                failure=Failure(
-                    kind=FailureKind.AUTH_EXPIRED,
-                    message=banners or "session expired",
-                    retryable=True,
-                ),
-                observation=Observation(summary="Auth expired", data=obs, success=False),
-                data={"observation": obs, "evidence": [before.id, after.id], "url": obs["url"]},
+            return self._auth_expired_result(
+                obs, evidence=[before.id, after.id], message=banners or "session expired"
             )
         return ToolResult(
             ok=True,
@@ -307,6 +328,8 @@ class BrowserTool(BaseTool):
             )
         el.fill(text)
         obs = self._observe()
+        if "/login" in str(obs.get("url") or ""):
+            return self._auth_expired_result(obs, message="session expired during fill")
         return ToolResult(
             ok=True, observation=Observation(summary=f"Filled {ref}", data=obs), data=obs
         )
@@ -349,6 +372,8 @@ class BrowserTool(BaseTool):
                 ),
             )
         obs = self._observe()
+        if "/login" in str(obs.get("url") or ""):
+            return self._auth_expired_result(obs, message="session expired during select")
         return ToolResult(
             ok=True, observation=Observation(summary=f"Selected {ref}", data=obs), data=obs
         )
@@ -535,7 +560,7 @@ def resolve_select_option(requested: str, options: list[tuple[str, str]]) -> str
             uniq_candidates.append(c)
 
     for cand in uniq_candidates:
-        for oval, olabel in options:
+        for oval, _olabel in options:
             if oval and oval == cand:
                 return oval
     for cand in uniq_candidates:
@@ -545,9 +570,7 @@ def resolve_select_option(requested: str, options: list[tuple[str, str]]) -> str
 
     for cand in sorted(uniq_candidates, key=len, reverse=True):
         hits = [
-            oval
-            for oval, olabel in options
-            if oval and cand and (cand in olabel or cand in oval)
+            oval for oval, olabel in options if oval and cand and (cand in olabel or cand in oval)
         ]
         # Deduplicate while preserving order
         seen: list[str] = []

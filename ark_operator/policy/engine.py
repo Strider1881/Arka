@@ -9,20 +9,34 @@ import yaml
 
 from ark_operator.domain.enums import InvoiceDecision, PolicyDecision, RiskLevel
 from ark_operator.domain.models import InvoiceRecord, PolicyCitation
+from ark_operator.policy.kb_params import (
+    DEFAULT_KNOWLEDGE_DIR,
+    assert_rules_permissions_only,
+    load_policy_params,
+)
 
 RULES_PATH = Path(__file__).resolve().parent / "rules.yaml"
 
 
 class PolicyEngine:
-    """Evaluate actions and invoice decisions against rules.yaml + seed expectations."""
+    """Evaluate actions and invoice decisions against KB params + rules.yaml permissions."""
 
-    def __init__(self, rules_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        rules_path: Path | None = None,
+        *,
+        knowledge_dir: Path | None = None,
+    ) -> None:
         path = rules_path or RULES_PATH
-        self.rules: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8"))
-        self.threshold = float(self.rules.get("approval_threshold_usd", 5000))
-        self.tolerance_pct = float(self.rules.get("tolerance_pct", 2.0))
-        self.blocked = set(self.rules.get("blocked_vendors") or [])
-        self.aliases: dict[str, str] = dict(self.rules.get("vendor_aliases") or {})
+        self.rules: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        assert_rules_permissions_only(self.rules)
+        self.knowledge_dir = knowledge_dir or DEFAULT_KNOWLEDGE_DIR
+        params = load_policy_params(self.knowledge_dir)
+        self.threshold = float(params.approval_threshold_usd)
+        self.tolerance_pct = float(params.tolerance_pct)
+        self.blocked = set(params.blocked_vendors)
+        self.aliases: dict[str, str] = dict(params.vendor_aliases)
+        self.param_sources = dict(params.sources)
         self.po_amounts: dict[str, float] = {}
         self.vendor_by_po: dict[str, str] = {}
         self.seen_keys: set[str] = set()

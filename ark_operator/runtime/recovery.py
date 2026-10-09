@@ -48,9 +48,12 @@ class Recovery:
             return failure
         if kind == FailureKind.AUTH_EXPIRED and relogin is not None:
             login = relogin()
-            if login.ok and retry is not None:
+            if not login.ok:
+                return failure
+            # retry=None → caller resumes after re-login (a11y loop re-opens form).
+            if retry is not None:
                 return retry()
-            return failure
+            return login
         if kind in {
             FailureKind.TRANSIENT,
             FailureKind.TIMEOUT,

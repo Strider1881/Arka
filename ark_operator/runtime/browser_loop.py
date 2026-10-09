@@ -257,10 +257,13 @@ class BrowserLoop:
                             }
                         )
                     continue
+                # AUTH_EXPIRED: re-login only — do not retry the stale pre-login action.
+                # TRANSIENT / others may retry the same tool call after backoff.
+                auth_expired = fail.kind == FailureKind.AUTH_EXPIRED
                 handled = self.recovery.handle(
                     f"{idempotency_key}:{choice.action}",
                     fail,
-                    retry=call,
+                    retry=None if auth_expired else call,
                     relogin=(
                         (lambda: self.browser.run({"action": "login"}))
                         if self.relogin_on_auth_expired
@@ -270,7 +273,8 @@ class BrowserLoop:
                 if isinstance(handled, ToolResult):
                     result = handled
                     # After AUTH recovery, force a fresh submit form navigation next loop.
-                    if fail.kind == FailureKind.AUTH_EXPIRED and self.recover_wrong_page:
+                    if auth_expired and self.recover_wrong_page:
+                        history[-1]["recovered"] = "AUTH_EXPIRED"
                         self.browser.run({"action": "goto", "url": self.recover_goto})
                         history.append(
                             {
@@ -280,7 +284,9 @@ class BrowserLoop:
                                 "recovered": "AUTH_EXPIRED",
                             }
                         )
-                        history[-2]["recovered"] = "AUTH_EXPIRED"
+                        continue
+                    if auth_expired:
+                        history[-1]["recovered"] = "AUTH_EXPIRED"
                         continue
                 else:
                     history[-1]["error"] = handled.message
@@ -300,9 +306,13 @@ class BrowserLoop:
 
             # A later successful click after an ELEMENT_NOT_FOUND click counts as
             # label→adapt recovery for plan revision / episodic learning.
-            if result.ok and choice.action == "click" and any(
-                isinstance(h, dict) and h.get("action") == "click" and h.get("error")
-                for h in history[:-1]
+            if (
+                result.ok
+                and choice.action == "click"
+                and any(
+                    isinstance(h, dict) and h.get("action") == "click" and h.get("error")
+                    for h in history[:-1]
+                )
             ):
                 recovered_from_label = True
 

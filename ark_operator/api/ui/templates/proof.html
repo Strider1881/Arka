@@ -38,7 +38,7 @@
     {% for inv in report.invoices %}
       <tr>
         <td>{{ inv.invoice_number }}</td>
-        <td>{{ inv.outcome }}</td>
+        <td>{{ outcome_label(inv.outcome) }}</td>
         <td>{{ inv.reason }}</td>
         <td class="status">
           {% for p in inv.policy_cited %}

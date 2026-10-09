@@ -37,8 +37,8 @@ endobj
 endobj
 7 0 obj
 <<
-/Author (anonymous) /CreationDate (D:20261008114228+00'00') /Creator (anonymous) /Keywords () /ModDate (D:20261008114228+00'00') /Producer (ReportLab PDF Library - \(opensource\)) 
-  /Subject (unspecified) /Title (untitled) /Trapped /False
+/Author (AcmeCorp) /CreationDate (D:20000101000000+00'00') /Creator (company_world.scripts.make_invoices) /Keywords () /ModDate (D:20000101000000+00'00') /Producer (AcmeCorp-deterministic) 
+  /Subject (unspecified) /Title (Invoice INV-1001) /Trapped /False
 >>
 endobj
 8 0 obj
@@ -63,12 +63,12 @@ xref
 0000000446 00000 n 
 0000000639 00000 n 
 0000000707 00000 n 
-0000000968 00000 n 
-0000001027 00000 n 
+0000000985 00000 n 
+0000001044 00000 n 
 trailer
 <<
 /ID 
-[<9f3cd489798c02e744b541b9a1726f7e><9f3cd489798c02e744b541b9a1726f7e>]
+[<e5f3d587000bf10af110a2573afabf3c><e5f3d587000bf10af110a2573afabf3c>]
 % ReportLab generated PDF document -- digest (opensource)
 
 /Info 7 0 R
@@ -76,5 +76,5 @@ trailer
 /Size 10
 >>
 startxref
-1556
+1573
 %%EOF

@@ -34,8 +34,10 @@ class Settings(BaseSettings):
     portal_base_url: str = "http://127.0.0.1:8765"
     portal_db_path: str = "company_world/portal/portal.db"
     portal_session_secret: str = "acme-dev-secret-change-me"
+    # Single EventStore path shared by CLI + UI (OPERATOR_DB_PATH).
     operator_db_path: str = "data/operator.db"
-    operator_data_dir: str = "data/ui"
+    # Evidence / run artifacts; defaults beside the shared DB.
+    operator_data_dir: str = "data"
     operator_headless: bool = True
     # Comma-separated invoice stems for a short UI/demo slice (empty = all inbox PDFs).
     operator_demo_invoices: str = ""

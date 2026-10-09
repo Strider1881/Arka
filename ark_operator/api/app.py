@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Stre
 from fastapi.templating import Jinja2Templates
 
 from ark_operator.config import get_settings
+from ark_operator.domain.enums import outcome_label
 from ark_operator.events.replay import fold_working_state, replay_run
 from ark_operator.events.store import EventStore
 from ark_operator.events.types import EventType
@@ -22,16 +23,25 @@ from ark_operator.verify.evidence import collect_run_evidence
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "ui" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.globals["outcome_label"] = outcome_label
 
 
 def _data_dir() -> Path:
-    return Path(get_settings().operator_data_dir)
+    """Shared operator data root (CLI + UI). Prefer OPERATOR_DATA_DIR; else DB parent."""
+    settings = get_settings()
+    raw = (settings.operator_data_dir or "").strip()
+    if raw:
+        return Path(raw)
+    return Path(settings.operator_db_path).resolve().parent
 
 
 def get_store() -> EventStore:
-    data_dir = _data_dir()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return EventStore(data_dir / "operator.db")
+    """CLI and UI must share one EventStore so approve/status work cross-surface."""
+    settings = get_settings()
+    path = Path(settings.operator_db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _data_dir().mkdir(parents=True, exist_ok=True)
+    return EventStore(path)
 
 
 def _pipeline_cfg(*, auto_approve: bool | None = None) -> PipelineConfig:
@@ -163,6 +173,8 @@ def create_operator_app() -> FastAPI:
                 break
         approvals = store.pending_approvals(run_id)
         checklist = _invoice_checklist(store, run_id)
+        events_for_seq = store.list_for_run(run_id)
+        last_seq = events_for_seq[-1].seq if events_for_seq else 0
         template = (
             "proof.html"
             if working.state in {"COMPLETE", "FAILED", "ESCALATED"} and report
@@ -181,6 +193,7 @@ def create_operator_app() -> FastAPI:
                 "checklist": checklist,
                 "evidence_thumbs": _evidence_thumbs(run_id, report),
                 "timeline": replay_run(store, run_id)[-30:],
+                "last_seq": last_seq,
             },
         )
 

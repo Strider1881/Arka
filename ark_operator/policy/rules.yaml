@@ -1,5 +1,6 @@
-approval_threshold_usd: 5000
-tolerance_pct: 2.0
+# Permissions + risk mapping only.
+# Numeric policy (threshold, tolerance, blocked vendors, aliases) loads from
+# company_world/knowledge/*.md via ark_operator.policy.kb_params.
 
 tool_permissions:
   files: READ
@@ -14,9 +15,3 @@ risk_to_decision:
   READ: ALLOW
   REVERSIBLE_WRITE: ALLOW
   IRREVERSIBLE: REQUIRE_APPROVAL
-
-blocked_vendors:
-  - Pied Piper Cloud
-
-vendor_aliases:
-  Northwind Supply Co: Northwind Supplies

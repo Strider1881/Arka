@@ -102,7 +102,7 @@ def load_scenarios() -> list[dict[str, Any]]:
 
 
 def _require_anthropic_key() -> None:
-    """Fail clearly when eval-llm is invoked without a real API key."""
+    """Fail clearly when eval-llm is invoked without a real API key / valid model."""
     clear_settings_cache()
     settings = get_settings()
     key = (settings.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
@@ -114,6 +114,12 @@ def _require_anthropic_key() -> None:
             "Use `make eval` for the FakeLLM CI path.",
             file=sys.stderr,
         )
+        raise SystemExit(2)
+    from ark_operator.llm.model_preflight import preflight_operator_model
+
+    check = preflight_operator_model(settings.operator_model, api_key=key, probe_api=True)
+    if not check.ok:
+        print(f"ERROR: {check.detail}", file=sys.stderr)
         raise SystemExit(2)
 
 
