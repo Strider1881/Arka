@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     operator_headless: bool = True
     # Comma-separated invoice stems for a short UI/demo slice (empty = all inbox PDFs).
     operator_demo_invoices: str = ""
+    # Optional HTTP Basic Auth for Operator UI when exposing beyond loopback.
+    # Both must be non-empty to enable; local defaults leave them empty (no gate).
+    operator_ui_basic_auth_user: str = ""
+    operator_ui_basic_auth_pass: str = ""
     faults: str = ""
     session_expiry_n: int = 5
     log_level: str = "INFO"

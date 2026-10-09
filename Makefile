@@ -1,4 +1,5 @@
-.PHONY: setup portal run test lint eval eval-llm eval-llm-full eval-rpa demo invoices ui
+.PHONY: setup portal run test lint eval eval-llm eval-llm-full eval-rpa demo invoices ui \
+	deploy-up deploy-down deploy-tunnel
 
 PORTAL_PORT ?= 8765
 OPERATOR_PORT ?= 8877
@@ -17,6 +18,17 @@ portal: invoices
 ui:
 	PORTAL_BASE_URL=http://127.0.0.1:$(PORTAL_PORT) \
 	uv run uvicorn ark_operator.api.app:app --host 127.0.0.1 --port $(OPERATOR_PORT)
+
+# Private/local process deploy (loopback by default). See docs/DEPLOY.md.
+deploy-up:
+	./scripts/deploy-up.sh
+
+deploy-down:
+	./scripts/deploy-down.sh
+
+# Cloudflare quick tunnel for Operator UI only (requires Basic Auth in deploy.env).
+deploy-tunnel:
+	./scripts/deploy-tunnel.sh
 
 run:
 	uv run operator run "Process this month's pending vendor invoices." --auto-approve

@@ -94,6 +94,20 @@ Package: **`ark_operator/`**. Event-sourced FSM, irreversible ledger, independen
 - [docs/LIMITATIONS.md](docs/LIMITATIONS.md)
 - [docs/AUDIT.md](docs/AUDIT.md) — historical engineering audit; reconcile against code + LIMITATIONS (invoice control plane is intentional)
 
+## Deploy
+
+Private VM / SSH tunnel / optional Cloudflare quick tunnel for a shareable Operator UI URL:
+see [docs/DEPLOY.md](docs/DEPLOY.md). Operator UI has **no product login** — never expose it
+publicly without `OPERATOR_UI_BASIC_AUTH_*` (or equivalent Access / reverse-proxy auth).
+Portal stays on loopback for Playwright.
+
+```bash
+cp deploy.env.example deploy.env   # set secrets + Basic Auth for any public URL
+make deploy-up
+make deploy-tunnel                 # only after Basic Auth is set
+make deploy-down
+```
+
 ## Limitations
 
 See [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for the full honest list (FakeLLM ≠ real model, DesktopTool STUB, Phase E deferred, etc.).

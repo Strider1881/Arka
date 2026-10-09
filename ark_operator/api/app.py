@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import threading
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from ark_operator.config import get_settings
 from ark_operator.domain.enums import outcome_label
@@ -125,8 +133,49 @@ def _safe_evidence_path(raw: str) -> Path:
     return path
 
 
+class _OperatorUIBasicAuthMiddleware(BaseHTTPMiddleware):
+    """Optional HTTP Basic Auth when OPERATOR_UI_BASIC_AUTH_* are set.
+
+    ``/health`` stays open for probes. Disabled entirely when user or pass is empty
+    so local ``make ui`` / loopback demos stay ungated.
+    """
+
+    def __init__(self, app: Any, *, username: str, password: str) -> None:
+        super().__init__(app)
+        self._username = username
+        self._password = password
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.url.path == "/health":
+            return await call_next(request)
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Basic "):
+            import base64
+
+            try:
+                decoded = base64.b64decode(auth[6:].strip()).decode("utf-8")
+                user, _, pwd = decoded.partition(":")
+            except Exception:
+                user, pwd = "", ""
+            if secrets.compare_digest(user, self._username) and secrets.compare_digest(
+                pwd, self._password
+            ):
+                return await call_next(request)
+        return Response(
+            content="Authentication required",
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="Operator UI"'},
+            media_type="text/plain",
+        )
+
+
 def create_operator_app() -> FastAPI:
     app = FastAPI(title="Operator", version="0.3.0")
+    settings = get_settings()
+    user = (settings.operator_ui_basic_auth_user or "").strip()
+    password = (settings.operator_ui_basic_auth_pass or "").strip()
+    if user and password:
+        app.add_middleware(_OperatorUIBasicAuthMiddleware, username=user, password=password)
 
     @app.get("/health")
     def health() -> dict[str, str]:
