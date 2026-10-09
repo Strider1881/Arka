@@ -1317,16 +1317,19 @@ class InvoicePipeline:
                 outcome = InvoiceOutcome.NEEDS_ATTENTION
                 inv.outcome = outcome
             verified = outcome == InvoiceOutcome.COMPLETED and verification.passed and not partial
+            # Proof rows label the process identity (file stem), not the extracted
+            # document number — duplicates share invoice_number but are distinct work units.
+            row_id = inv.process_identity()
             if outcome in {InvoiceOutcome.NEEDS_ATTENTION, InvoiceOutcome.FLAGGED}:
-                needs.append(inv.invoice_number)
+                needs.append(row_id)
             if inv.security_finding:
-                security.append(inv.invoice_number)
+                security.append(row_id)
             citations = list(inv.policy_citations) or [
                 PolicyCitation(file="invoice_processing_sop.md", section="Outcomes")
             ]
             lines.append(
                 InvoiceLineResult(
-                    invoice_number=inv.invoice_number,
+                    invoice_number=row_id,
                     outcome=outcome,
                     reason=inv.decision_reason,
                     policy_cited=citations,

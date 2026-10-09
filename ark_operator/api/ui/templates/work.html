@@ -22,24 +22,6 @@
 </section>
 {% endif %}
 
-{% if checklist %}
-<section class="card" id="checklist">
-  <h2>Invoices</h2>
-  <table>
-    <thead><tr><th>Invoice</th><th>Decision</th><th>Outcome</th></tr></thead>
-    <tbody>
-    {% for row in checklist %}
-      <tr>
-        <td>{{ row.id }}</td>
-        <td>{{ row.decision or "—" }}</td>
-        <td>{{ row.outcome or row.status or "working" }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</section>
-{% endif %}
-
 {% if approvals %}
 {% for a in approvals %}
 <div class="card" id="approval-{{ a.id }}">
@@ -76,8 +58,31 @@
 </div>
 {% endif %}
 
+{% if checklist %}
+<section class="card" id="checklist">
+  <h2>Invoices</h2>
+  <table>
+    <thead><tr><th>Invoice</th><th>Decision</th><th>Outcome</th></tr></thead>
+    <tbody>
+    {% for row in checklist %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.decision or "—" }}</td>
+        <td>{{ row.outcome or row.status or "working" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
 <p><a class="btn secondary" href="/runs/{{ run_id }}/details">Details</a></p>
 <script>
+  // Keep approve/reject above the fold on short viewports (checklist is secondary).
+  const firstApproval = document.querySelector("[id^='approval-']");
+  if (firstApproval) {
+    firstApproval.scrollIntoView({ block: "nearest", behavior: "auto" });
+  }
   const es = new EventSource("/runs/{{ run_id }}/events");
   es.onmessage = (ev) => {
     const data = JSON.parse(ev.data);

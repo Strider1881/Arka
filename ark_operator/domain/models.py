@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -142,6 +143,16 @@ class InvoiceRecord(BaseModel):
     confidence: Confidence = Confidence.MEDIUM
     fields_confidence: dict[str, float] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(default_factory=list)
+
+    def process_identity(self) -> str:
+        """Stable work-unit id: attachment stem when present, else document number.
+
+        Duplicate PDFs reuse an extracted invoice_number; the inbox file stem is the
+        operator/process key used throughout the run (checklist, steps, scoring).
+        """
+        if self.attachment_name:
+            return Path(self.attachment_name).stem
+        return self.invoice_number
 
 
 class InvoiceLineResult(BaseModel):
