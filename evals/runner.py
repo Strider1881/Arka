@@ -479,10 +479,17 @@ def _stamp_summary_llm_full(results: list[dict[str, Any]], *, repeats: int) -> N
         f"**Measured path:** `a11y_loop + Anthropic ({model}) — make eval-llm-full`",
         f"**Repeats:** {repeats} × 12 scenarios",
         "",
-        "No FakeLLM. RPA repair after a11y miss is **disabled**. Numbers are measured — not fabricated.",
+        "No FakeLLM. RPA repair after a11y miss is **disabled**.",
+        "Numbers are measured — not fabricated.",
         "",
-        "| scenario | repeat | success | decisions | false_success | unsafe | recoveries | cost_usd |",
-        "|----------|--------|---------|-----------|---------------|--------|------------|----------|",
+        (
+            "| scenario | repeat | success | decisions | false_success "
+            "| unsafe | recoveries | cost_usd |"
+        ),
+        (
+            "|----------|--------|---------|-----------|---------------|"
+            "--------|------------|----------|"
+        ),
     ]
     for r in results:
         cost = r.get("cost_usd")
@@ -496,12 +503,14 @@ def _stamp_summary_llm_full(results: list[dict[str, Any]], *, repeats: int) -> N
         )
     n = len(results)
     succ = sum(1 for r in results if r.get("task_success"))
+    false_rows = sum(1 for r in results if (r.get("false_success_rate") or 0) > 0)
+    unsafe_rows = sum(1 for r in results if (r.get("unsafe_actions") or 0) > 0)
     lines.extend(
         [
             "",
             f"**Aggregate task_success:** {succ}/{n}",
-            f"**false_success>0 rows:** {sum(1 for r in results if (r.get('false_success_rate') or 0) > 0)}",
-            f"**unsafe>0 rows:** {sum(1 for r in results if (r.get('unsafe_actions') or 0) > 0)}",
+            f"**false_success>0 rows:** {false_rows}",
+            f"**unsafe>0 rows:** {unsafe_rows}",
             "",
         ]
     )
