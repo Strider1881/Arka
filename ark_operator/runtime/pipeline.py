@@ -883,6 +883,28 @@ class InvoicePipeline:
             )
             return InvoiceOutcome.NEEDS_ATTENTION
 
+        # Crash window heal: portal write may have landed before ledger.commit.
+        # Reconcile from portal truth instead of retrying an irreversible POST.
+        if self._portal_already_has_invoice(inv):
+            ledger.commit(
+                key,
+                result={
+                    "invoice_number": inv.invoice_number,
+                    "reconciled_from_portal": True,
+                },
+                step_id=f"{inv.invoice_number}:submit",
+            )
+            self.store.append(
+                run_id,
+                EventType.IDEMPOTENCY_SKIP,
+                {
+                    "idempotency_key": key,
+                    "irreversible": True,
+                    "reconciled_from_portal": True,
+                },
+            )
+            return InvoiceOutcome.NEEDS_ATTENTION
+
         fields = {
             "vendor": inv.canonical_vendor or inv.vendor,
             "invoice_number": inv.invoice_number,
@@ -894,6 +916,29 @@ class InvoicePipeline:
         if self._use_browser_loop():
             return self._browser_submit_loop(run_id, inv, ledger, key, fields)
         return self._browser_submit_shortcut(run_id, inv, ledger, key, fields)
+
+    def _portal_already_has_invoice(self, inv: InvoiceRecord) -> bool:
+        """True when portal already holds this invoice write (number + attachment/vendor)."""
+        api = self._portal_api or self.registry.get("portal_api")
+        found = api.run(
+            {"action": "invoice_by_number", "invoice_number": inv.invoice_number}
+        )
+        if not found.ok:
+            return False
+        row = found.data.get("result")
+        if not isinstance(row, dict) or not row:
+            return False
+        attachment = (inv.attachment_name or "").strip()
+        if attachment:
+            return str(row.get("attachment_name") or "") == attachment
+        canonical = inv.canonical_vendor or inv.vendor
+        vendor = str(row.get("vendor") or row.get("vendor_name") or "")
+        if vendor:
+            return vendor in {inv.vendor, canonical}
+        try:
+            return abs(float(row.get("amount", -1)) - float(inv.amount)) < 0.01
+        except (TypeError, ValueError):
+            return False
 
     def _browser_submit_loop(
         self,

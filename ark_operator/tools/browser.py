@@ -322,39 +322,29 @@ class BrowserTool(BaseTool):
                     retryable=True,
                 ),
             )
-        # Agents often paste observation option tokens like "6:Umbrella Corp (ACTIVE)".
-        candidates = [value]
-        if ":" in value:
-            left, right = value.split(":", 1)
-            if left.strip():
-                candidates.append(left.strip())
-            if right.strip():
-                candidates.append(right.strip())
-        matched = False
-        last_err: Exception | None = None
-        for cand in candidates:
-            try:
-                el.select_option(cand)
-                matched = True
-                break
-            except Exception as exc:  # noqa: BLE001
-                last_err = exc
-        if not matched:
-            # Visible option label; match by contains.
-            for opt in el.query_selector_all("option"):
-                label = (opt.inner_text() or "").strip()
-                oval = opt.get_attribute("value") or ""
-                if any(c and c in label for c in candidates) and oval:
-                    el.select_option(oval)
-                    matched = True
-                    break
-        if not matched:
+        options: list[tuple[str, str]] = []
+        for opt in el.query_selector_all("option"):
+            oval = (opt.get_attribute("value") or "").strip()
+            olabel = " ".join((opt.inner_text() or "").split())
+            options.append((oval, olabel))
+        chosen = resolve_select_option(value, options)
+        if chosen is None:
             return ToolResult(
                 ok=False,
                 failure=Failure(
                     kind=FailureKind.ELEMENT_NOT_FOUND,
-                    message=f"No option matching {value!r} for {ref}"
-                    + (f" ({last_err})" if last_err else ""),
+                    message=f"No unambiguous option matching {value!r} for {ref}",
+                    retryable=True,
+                ),
+            )
+        try:
+            el.select_option(chosen)
+        except Exception as exc:  # noqa: BLE001
+            return ToolResult(
+                ok=False,
+                failure=Failure(
+                    kind=FailureKind.ELEMENT_NOT_FOUND,
+                    message=f"select_option failed for {value!r} on {ref}: {exc}",
                     retryable=True,
                 ),
             )
@@ -521,15 +511,66 @@ class BrowserTool(BaseTool):
         )
 
 
+def resolve_select_option(requested: str, options: list[tuple[str, str]]) -> str | None:
+    """Resolve a select value/label token to an option *value*.
+
+    Order: exact value → exact label → unique label/value contains.
+    Observation tokens like ``6:Umbrella Corp (ACTIVE)`` are split into candidates.
+    Ambiguous substring matches return None (fail closed — never guess a vendor/PO).
+    """
+    raw = (requested or "").strip()
+    if not raw:
+        return None
+    candidates: list[str] = [raw]
+    if ":" in raw:
+        left, right = raw.split(":", 1)
+        if left.strip():
+            candidates.append(left.strip())
+        if right.strip():
+            candidates.append(right.strip())
+    # Prefer longer / more specific candidates first for contains checks.
+    uniq_candidates: list[str] = []
+    for c in candidates:
+        if c and c not in uniq_candidates:
+            uniq_candidates.append(c)
+
+    for cand in uniq_candidates:
+        for oval, olabel in options:
+            if oval and oval == cand:
+                return oval
+    for cand in uniq_candidates:
+        for oval, olabel in options:
+            if olabel and olabel == cand and oval:
+                return oval
+
+    for cand in sorted(uniq_candidates, key=len, reverse=True):
+        hits = [
+            oval
+            for oval, olabel in options
+            if oval and cand and (cand in olabel or cand in oval)
+        ]
+        # Deduplicate while preserving order
+        seen: list[str] = []
+        for h in hits:
+            if h not in seen:
+                seen.append(h)
+        if len(seen) == 1:
+            return seen[0]
+        if len(seen) > 1:
+            return None
+    return None
+
+
 def _select_option_containing(page: Any, selector: str, text: str) -> None:
     options = page.query_selector_all(f"{selector} option")
-    for opt in options:
-        label = (opt.inner_text() or "").strip()
-        value = opt.get_attribute("value") or ""
-        if text in label and value:
-            page.select_option(selector, value=value)
-            return
-    raise RuntimeError(f"No option containing {text!r} in {selector}")
+    pairs = [
+        ((opt.get_attribute("value") or "").strip(), " ".join((opt.inner_text() or "").split()))
+        for opt in options
+    ]
+    chosen = resolve_select_option(text, pairs)
+    if not chosen:
+        raise RuntimeError(f"No unambiguous option matching {text!r} in {selector}")
+    page.select_option(selector, value=chosen)
 
 
 class DesktopTool(BaseTool):

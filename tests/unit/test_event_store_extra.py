@@ -26,6 +26,9 @@ def test_store_helpers(tmp_path: Path) -> None:
     assert info["status"] == "APPROVED"
     assert not store.pending_approvals(run_id)
     assert store.pending_approvals() == []
+    # Single-shot: second decide must not overwrite or re-arm resume.
+    assert store.decide_approval("a1", "reject") is None
+    assert store.get_approval("a1")["status"] == "APPROVED"
     assert run_id in store.list_run_ids()
 
     run2 = store.new_run_id()

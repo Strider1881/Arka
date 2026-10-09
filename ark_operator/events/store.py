@@ -218,19 +218,26 @@ class EventStore:
     def decide_approval(
         self, approval_id: str, decision: str, *, decided_by: str = "human"
     ) -> dict[str, Any] | None:
+        """Apply a human decision once. Returns None if missing or already decided."""
         with self._lock, self._connect() as conn:
             row = conn.execute("SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
             if not row:
                 return None
+            if str(row["status"] or "") != "PENDING":
+                # Single-shot: refuse re-decide so UI double-click cannot race resume.
+                return None
             status = "APPROVED" if decision.lower() in ("approve", "approved") else "REJECTED"
             ts = datetime.now(UTC).isoformat()
-            conn.execute(
+            cur = conn.execute(
                 """
                     UPDATE approvals SET status = ?, decided_by = ?, decided_at = ?
-                    WHERE id = ?
+                    WHERE id = ? AND status = 'PENDING'
                     """,
                 (status, decided_by, ts, approval_id),
             )
+            if cur.rowcount == 0:
+                conn.commit()
+                return None
             conn.commit()
             return {
                 "id": approval_id,

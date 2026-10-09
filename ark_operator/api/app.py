@@ -194,6 +194,9 @@ def create_operator_app() -> FastAPI:
     def decide(run_id: str, approval_id: str, decision: str = Form(...)) -> RedirectResponse:
         store = get_store()
         info = store.decide_approval(approval_id, decision, decided_by="ui")
+        if not info:
+            # Missing / already decided — do not append a fake DECIDED or race a second resume.
+            return RedirectResponse(f"/runs/{run_id}", status_code=303)
         store.append(
             run_id,
             EventType.APPROVAL_DECIDED,
